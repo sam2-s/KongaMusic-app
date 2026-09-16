@@ -1,0 +1,131 @@
+/*
+ * kongamusic (2026)
+ * © Samk
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
+
+package moe.kongamusic.spotify
+
+import androidx.media3.common.MediaItem
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import moe.kongamusic.extensions.toMediaItem
+import moe.kongamusic.innertube.YouTube
+import moe.kongamusic.innertube.models.SongItem
+import moe.kongamusic.models.MediaMetadata
+import moe.kongamusic.models.toMediaMetadata
+import moe.kongamusic.constants.DefaultMetadataSourceKey
+import moe.kongamusic.constants.MetadataSource
+import moe.kongamusic.extensions.toEnum
+import moe.kongamusic.utils.PreferenceStore
+import moe.kongamusic.spotify.models.SpotifyTrack
+
+object SpotifyPlaybackResolver {
+    private const val MIN_MATCH_THRESHOLD = 0.35
+    private const val CACHE_MAX_SIZE = 512
+
+    private val mutex = Mutex()
+    private val cache =
+        object : LinkedHashMap<String, MediaMetadata>(CACHE_MAX_SIZE, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, MediaMetadata>?): Boolean = size > CACHE_MAX_SIZE
+        }
+
+    suspend fun resolveToMediaItem(track: SpotifyTrack): MediaItem? = resolveToMetadata(track)?.toMediaItem()
+
+    suspend fun resolveToMetadata(track: SpotifyTrack): MediaMetadata? =
+        withContext(Dispatchers.IO) {
+            val metadataSource =
+                PreferenceStore
+                    .get(DefaultMetadataSourceKey)
+                    .toEnum(MetadataSource.YOUTUBE)
+            val cacheKey = "${track.id}:${metadataSource.name}"
+            mutex.withLock {
+                cache[cacheKey]?.let { return@withContext it }
+            }
+
+            val youtubeQuery = SpotifyMapper.buildSearchQuery(track)
+            val anonymousResult = YouTube.search(
+                query = youtubeQuery,
+                filter = YouTube.SearchFilter.FILTER_SONG,
+                useAccountContext = false,
+            )
+            currentCoroutineContext().ensureActive()
+            val anonymousCandidates = anonymousResult.getOrNull()?.items.orEmpty().filterIsInstance<SongItem>()
+            val candidates = anonymousCandidates.ifEmpty {
+                val fallback = YouTube.search(query = youtubeQuery, filter = YouTube.SearchFilter.FILTER_SONG)
+                currentCoroutineContext().ensureActive()
+                fallback.getOrNull()?.items.orEmpty().filterIsInstance<SongItem>()
+            }.distinctBy { it.id }
+            if (candidates.isEmpty()) return@withContext null
+
+            val precomputed =
+                mutex.withLock {
+                    SpotifyMapper.precompute(
+                        title = track.name,
+                        artist = track.artists.joinToString(" ") { it.name },
+                        durationMs = track.durationMs,
+                    )
+                }
+
+            val (best, score) =
+                mutex.withLock {
+                    candidates
+                        .map { candidate ->
+                            candidate to
+                                SpotifyMapper.matchScorePrecomputed(
+                                    precomputed = precomputed,
+                                    candidateTitle = candidate.title,
+                                    candidateArtist = candidate.artists.joinToString(" ") { it.name },
+                                    candidateDurationSec = candidate.duration,
+                                )
+                        }.maxByOrNull { it.second }
+                } ?: return@withContext null
+            if (score < MIN_MATCH_THRESHOLD) return@withContext null
+
+            val bestMetadata = best.toMediaMetadata()
+            val useSpotifyMetadata = metadataSource == MetadataSource.SPOTIFY
+            val metadata =
+                bestMetadata.copy(
+                    title = if (useSpotifyMetadata) track.name.takeIf(String::isNotBlank) ?: best.title else best.title,
+                    artists =
+                        if (useSpotifyMetadata) {
+                            track.artists
+                                .filter { it.name.isNotBlank() }
+                                .map { artist ->
+                                    MediaMetadata.Artist(
+                                        id = artist.id,
+                                        name = artist.name,
+                                    )
+                                }.ifEmpty { bestMetadata.artists }
+                        } else {
+                            bestMetadata.artists
+                        },
+                    thumbnailUrl =
+                        if (useSpotifyMetadata) {
+                            SpotifyMapper.getTrackThumbnail(track) ?: best.thumbnail
+                        } else {
+                            best.thumbnail
+                        },
+                    duration = if (useSpotifyMetadata && track.durationMs > 0) track.durationMs / 1000 else best.duration ?: -1,
+                    explicit = track.explicit || best.explicit,
+                    album =
+                        if (useSpotifyMetadata) {
+                            track.album?.let { MediaMetadata.Album(id = it.id, title = it.name) }
+                                ?: bestMetadata.album
+                        } else {
+                            bestMetadata.album
+                        },
+                    spotifyTrackId = track.id.takeIf(String::isNotBlank),
+                )
+
+            mutex.withLock {
+                cache[cacheKey] = metadata
+            }
+            metadata
+        }
+}

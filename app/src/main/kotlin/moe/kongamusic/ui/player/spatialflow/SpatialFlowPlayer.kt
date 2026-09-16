@@ -1,0 +1,1160 @@
+/*
+ * kongamusic (2026)
+ * © Samk
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
+
+package moe.kongamusic.ui.player.spatialflow
+
+import android.content.Intent
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import moe.kongamusic.LocalStableSystemBarsTopPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ButtonGroup
+import androidx.compose.material3.CircularWavyProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.exoplayer.offline.Download
+import androidx.media3.ui.AspectRatioFrameLayout
+import kotlinx.coroutines.delay
+import moe.kongamusic.ui.player.CanvasArtworkPlayer
+import androidx.media3.exoplayer.offline.DownloadRequest
+import androidx.media3.exoplayer.offline.DownloadService
+import androidx.media3.exoplayer.source.ShuffleOrder
+import coil3.compose.AsyncImage
+import kotlin.math.roundToInt
+import moe.kongamusic.LocalDownloadUtil
+import moe.kongamusic.R
+import moe.kongamusic.extensions.metadata
+import moe.kongamusic.extensions.move
+import moe.kongamusic.lyrics.LyricsUtils
+import moe.kongamusic.models.MediaMetadata
+import moe.kongamusic.db.entities.FormatEntity
+import moe.kongamusic.playback.PlayerConnection
+import moe.kongamusic.playback.ExoDownloadService
+import moe.kongamusic.playback.MusicHapticsSettings
+import moe.kongamusic.ui.component.BottomSheetPageState
+import moe.kongamusic.ui.component.BottomSheetState
+import moe.kongamusic.ui.component.MenuState
+import moe.kongamusic.ui.menu.PlayerMenu
+import moe.kongamusic.ui.utils.ShowMediaInfo
+import moe.kongamusic.ui.player.rememberMeshPalette
+import moe.kongamusic.ui.utils.highRes
+import androidx.navigation.NavController
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+
+private const val SfCanvasBackdropUpscale = 6f
+private const val SfCanvasBackdropOverscan = 1.10f
+private val SfCanvasBackdropBlurRadius = 72.dp
+private const val SfCanvasBackdropMaxVideoEdgePx = 480
+
+internal val SfCanvasScrimBrush =
+    Brush.verticalGradient(
+        0f to Color.Black.copy(alpha = 0.25f),
+        0.5f to Color.Black.copy(alpha = 0.40f),
+        1f to Color.Black.copy(alpha = 0.65f),
+    )
+
+private const val SfSharpStageFadeStart = 0.62f
+
+private val SfSharpStageFadeBrush =
+    Brush.verticalGradient(
+        SfSharpStageFadeStart to Color.Black,
+        1f to Color.Transparent,
+    )
+
+private const val SfLyricsBackdropMorphMs = 650
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalFoundationApi::class)
+@Composable
+fun SpatialFlowPlayerContent(
+    mediaMetadata: MediaMetadata,
+    isPlaying: Boolean,
+    isLoading: Boolean,
+    canSkipPrevious: Boolean,
+    canSkipNext: Boolean,
+    position: Long,
+    duration: Long,
+    playerConnection: PlayerConnection,
+    navController: NavController,
+    state: BottomSheetState,
+    menuState: MenuState,
+    bottomSheetPageState: BottomSheetPageState,
+    currentFormat: FormatEntity?,
+    positionProvider: () -> Long,
+    canvasPrimaryUrl: String? = null,
+    canvasFallbackUrl: String? = null,
+    appIsDark: Boolean = isSystemInDarkTheme(),
+    onSeek: (Long) -> Unit,
+    onSeekFinished: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+
+    // Follow the app's resolved theme (DarkMode ON/OFF/AUTO), not just the raw
+    // system state, so the player never renders light-mode colours inside a
+    // dark app or vice versa.
+    val isDark = appIsDark
+    // The canvas stack always renders behind the dark SfCanvasScrimBrush, so
+    // once a canvas is available the surface behaves like a dark theme even
+    // when the app theme is light: light mode must not paint near-black
+    // text over the darkened canvas. The queue drawer overlays it and keeps
+    // deriving its own palette from the real app theme.
+    val canvasAvailable = !canvasPrimaryUrl.isNullOrBlank() || !canvasFallbackUrl.isNullOrBlank()
+    val surfaceIsDark = isDark || canvasAvailable
+    val contentColor = if (surfaceIsDark) Color.White else Color(0xFF1C1B1F)
+    val contentSecondary = if (surfaceIsDark) Color.White.copy(alpha = 0.6f) else Color(0xFF1C1B1F).copy(alpha = 0.6f)
+
+    val queueWindows by playerConnection.queueWindows.collectAsStateWithLifecycle()
+    val currentWindowIndex by playerConnection.currentWindowIndex.collectAsStateWithLifecycle()
+    val currentSong by playerConnection.currentSong.collectAsStateWithLifecycle(initialValue = null)
+    val currentLyricsEntity by playerConnection.currentLyrics.collectAsStateWithLifecycle(initialValue = null)
+    val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsStateWithLifecycle()
+    val repeatMode by playerConnection.repeatMode.collectAsStateWithLifecycle()
+    val downloadUtil = LocalDownloadUtil.current
+    val download by downloadUtil
+        .getDownload(mediaMetadata.id)
+        .collectAsStateWithLifecycle(initialValue = null)
+    val fetchProgressMap by moe.kongamusic.playback.DownloadFetchProgress.flow
+        .collectAsStateWithLifecycle()
+
+    val artUrl = remember(mediaMetadata.id, mediaMetadata.thumbnailUrl) { mediaMetadata.thumbnailUrl?.highRes() }
+    val palette = rememberMeshPalette(artUrl)
+    val playerBackgroundColor = palette.colors.firstOrNull() ?: Color(0xFF202022)
+
+    // Pre-warm the lyrics blur bitmap the moment the artwork is known: the
+    // full-screen lyrics overlay reads the cache synchronously on its first
+    // frame, so opening lyrics never flashes the opaque palette fill while
+    // an async blur would have been landing.
+    LaunchedEffect(artUrl) {
+        if (artUrl != null && SfLyricsBlurBitmapCache.get(artUrl) == null) {
+            loadSfLyricsBlurredBitmap(context, artUrl)
+        }
+    }
+
+    val dynamicAccentColor =
+        remember(playerBackgroundColor, surfaceIsDark) {
+            val hsl = FloatArray(3)
+            androidx.core.graphics.ColorUtils.colorToHSL(playerBackgroundColor.toArgb(), hsl)
+            if (hsl[1] < 0.08f) {
+
+                if (surfaceIsDark) Color.White else Color(0xFF1C1B1F)
+            } else {
+                if (surfaceIsDark) {
+                    playerBackgroundColor
+                } else {
+                    hsl[2] = hsl[2].coerceAtMost(0.45f)
+                    hsl[1] = hsl[1].coerceAtLeast(0.6f)
+                    Color(androidx.core.graphics.ColorUtils.HSLToColor(hsl))
+                }
+            }
+        }
+
+    val backgroundBrush =
+        remember(playerBackgroundColor, surfaceIsDark) {
+            val finalColor =
+                deriveArtworkSurfaceColor(
+                    sourceColor = playerBackgroundColor,
+                    isDark = surfaceIsDark,
+                    darkLightness = 0.155f,
+                    lightLightness = 0.835f,
+                    darkSaturationRange = 0.32f..0.54f,
+                    lightSaturationRange = 0.30f..0.48f,
+                )
+            SolidColor(finalColor)
+        }
+
+    // The lyrics sheet is a dark media surface by design (it always draws the
+    // blurred artwork under the dark SfCanvasScrimBrush), so it keeps the dark
+    // surface derivation in BOTH themes — the lyrics text is constant white.
+    // (The light* parameters are required by the signature but unused when
+    // isDark = true.)
+    val lyricsBackgroundBrush =
+        remember(playerBackgroundColor) {
+            val finalColor =
+                deriveArtworkSurfaceColor(
+                    sourceColor = playerBackgroundColor,
+                    isDark = true,
+                    darkLightness = 0.145f,
+                    lightLightness = 0.825f,
+                    darkSaturationRange = 0.32f..0.54f,
+                    lightSaturationRange = 0.30f..0.48f,
+                )
+            SolidColor(finalColor)
+        }
+
+    var lyricsModeEnabled by rememberSaveable(mediaMetadata.id) { mutableStateOf(false) }
+    val syncedLyrics =
+        remember(currentLyricsEntity?.lyrics) {
+            val text = currentLyricsEntity?.lyrics
+            if (text.isNullOrBlank()) {
+                null
+            } else {
+
+                runCatching {
+                    if (LyricsUtils.isTtml(text)) {
+                        LyricsUtils.parseTtml(text)
+                    } else {
+                        LyricsUtils.parseLyrics(text)
+                    }
+                }
+                    .getOrNull()
+                    ?.takeIf { it.isNotEmpty() }
+            }
+        }
+    val plainLyrics =
+        remember(currentLyricsEntity?.lyrics, syncedLyrics) {
+            if (syncedLyrics != null) null else currentLyricsEntity?.lyrics?.takeIf { it.isNotBlank() }
+        }
+
+    var queueExpanded by rememberSaveable { mutableStateOf(false) }
+    var showSleepTimerDialog by remember { mutableStateOf(false) }
+    val sleepTimer = remember(playerConnection) { playerConnection.service.sleepTimer }
+    val sleepTimerMode =
+        remember(sleepTimer.triggerTime, sleepTimer.pauseWhenSongEnd) {
+            when {
+                sleepTimer.pauseWhenSongEnd -> SpatialFlowSleepTimerMode.END_OF_SONG
+                sleepTimer.triggerTime != -1L -> SpatialFlowSleepTimerMode.CUSTOM
+                else -> SpatialFlowSleepTimerMode.OFF
+            }
+        }
+
+    BackHandler(enabled = lyricsModeEnabled || queueExpanded) {
+        if (lyricsModeEnabled) {
+            lyricsModeEnabled = false
+        } else if (queueExpanded) {
+            queueExpanded = false
+        }
+    }
+
+    var hapticsEnabled by remember { mutableStateOf(MusicHapticsSettings.isEnabled(context)) }
+
+    var canvasPlayingForLyrics by remember { mutableStateOf(true) }
+    var canvasSurfacesForLyrics by remember { mutableStateOf(true) }
+    LaunchedEffect(lyricsModeEnabled) {
+        if (lyricsModeEnabled) {
+            canvasPlayingForLyrics = false
+            canvasSurfacesForLyrics = true
+            delay(SfLyricsBackdropMorphMs.toLong())
+            canvasSurfacesForLyrics = false
+        } else {
+            canvasPlayingForLyrics = true
+            canvasSurfacesForLyrics = true
+        }
+    }
+    val lyricsBackdropProgress by animateFloatAsState(
+        targetValue = if (lyricsModeEnabled) 1f else 0f,
+        animationSpec = tween(durationMillis = SfLyricsBackdropMorphMs, easing = FastOutSlowInEasing),
+        label = "SfLyricsCanvasFade",
+    )
+
+    val density = LocalDensity.current
+    var playerRootTopY by remember { mutableStateOf(0f) }
+    var titleTopInRootY by remember { mutableStateOf<Float?>(null) }
+    val sharpStageHeight: Dp? =
+        titleTopInRootY?.let { top ->
+            with(density) { (top - playerRootTopY).coerceAtLeast(0f).toDp() }
+        }
+
+    Box(
+        modifier =
+            modifier
+                .fillMaxSize()
+                .background(backgroundBrush)
+                .onGloballyPositioned { playerRootTopY = it.positionInRoot().y },
+    ) {
+        SpatialFlowBlurredBackdrop(
+            artUrl = artUrl,
+            withScrim = !canvasAvailable,
+            isDark = isDark,
+            modifier = Modifier.matchParentSize(),
+        )
+
+        if (canvasAvailable) {
+            val configuration = LocalConfiguration.current
+            val stageFraction =
+                sharpStageHeight?.let { (it / configuration.screenHeightDp.dp).coerceIn(0.1f, 1f) } ?: 0.55f
+            val frostFraction = (1f - SfSharpStageFadeStart * stageFraction).coerceIn(0.2f, 1f)
+            Box(
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .fillMaxHeight(frostFraction)
+                        .graphicsLayer {
+                            alpha = 1f - lyricsBackdropProgress
+                        },
+            ) {
+                Box(
+                    modifier =
+                        Modifier
+                            .matchParentSize()
+                            .graphicsLayer {
+                                val scale = SfCanvasBackdropOverscan * SfCanvasBackdropUpscale
+                                scaleX = scale
+                                scaleY = scale
+                            },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CanvasArtworkPlayer(
+                        primaryUrl = canvasPrimaryUrl,
+                        fallbackUrl = canvasFallbackUrl,
+                        isPlaying = isPlaying && canvasPlayingForLyrics,
+                        visible = canvasSurfacesForLyrics,
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+                        maxVideoEdgePx = SfCanvasBackdropMaxVideoEdgePx,
+                        modifier =
+                            Modifier
+                                .fillMaxWidth(1f / SfCanvasBackdropUpscale)
+                                .fillMaxHeight(1f / SfCanvasBackdropUpscale)
+                                .blur(SfCanvasBackdropBlurRadius / SfCanvasBackdropUpscale),
+                    )
+                }
+            }
+
+            Box(
+                modifier =
+                    Modifier
+                        .matchParentSize()
+                        .background(SfCanvasScrimBrush),
+            )
+
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (sharpStageHeight != null) {
+                                Modifier.height(sharpStageHeight)
+                            } else {
+                                Modifier.fillMaxHeight(0.55f)
+                            },
+                        )
+                        .graphicsLayer {
+                            compositingStrategy = CompositingStrategy.Offscreen
+                            alpha = 1f - lyricsBackdropProgress
+                        }
+                        .drawWithContent {
+                            drawContent()
+                            drawRect(brush = SfSharpStageFadeBrush, blendMode = BlendMode.DstIn)
+                        },
+            ) {
+                CanvasArtworkPlayer(
+                    primaryUrl = canvasPrimaryUrl,
+                    fallbackUrl = canvasFallbackUrl,
+                    isPlaying = isPlaying && canvasPlayingForLyrics,
+                    visible = canvasSurfacesForLyrics,
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+                    modifier = Modifier.matchParentSize(),
+                )
+            }
+        }
+
+        MaterialTheme(typography = SpatialFlowTypography) {
+                val configuration = LocalConfiguration.current
+                val screenWidth = configuration.screenWidthDp.dp
+                val albumArtSize = screenWidth * 0.9f
+
+                val statusBarTopDp = LocalStableSystemBarsTopPadding.current
+
+                var lyricsButtonCenterInRoot by remember { mutableStateOf<Offset?>(null) }
+                val lyricsRevealProgress by animateFloatAsState(
+                    targetValue = if (lyricsModeEnabled) 1f else 0f,
+                    animationSpec = tween(durationMillis = 340, easing = FastOutSlowInEasing),
+                    label = "LyricsCircularReveal",
+                )
+
+                val lyricsContentReady = lyricsRevealProgress > 0.8f
+
+                val keepMainContentComposed = !lyricsModeEnabled || lyricsRevealProgress < 1f
+                if (keepMainContentComposed) {
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .padding(top = statusBarTopDp)
+                            .navigationBarsPadding()
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .height(56.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = { state.collapseSoft() }) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.spatialflow_ic_keyboard_arrow_down),
+                            contentDescription = "Collapse Player",
+                            tint = contentColor.copy(alpha = 0.8f),
+                            modifier = Modifier.size(28.dp),
+                        )
+                    }
+
+                    Text(
+                        text = "NOW PLAYING",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = contentSecondary,
+                    )
+
+                    IconButton(
+                        onClick = {
+                            menuState.show {
+                                PlayerMenu(
+                                    mediaMetadata = mediaMetadata,
+                                    navController = navController,
+                                    playerBottomSheetState = state,
+                                    onShowDetailsDialog = {
+                                        bottomSheetPageState.show {
+                                            ShowMediaInfo(mediaMetadata.id)
+                                        }
+                                    },
+                                    onDismiss = menuState::dismiss,
+                                )
+                            }
+                        },
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.spatialflow_ic_more_vert),
+                            contentDescription = "More",
+                            tint = contentColor.copy(alpha = 0.8f),
+                            modifier = Modifier.size(28.dp),
+                        )
+                    }
+                }
+
+                // Both layouts pin the control stack to the bottom of the
+                // player: the artwork branch used a fixed top offset that left
+                // the thumbnail and controls floating mid-screen, so they
+                // jumped when the canvas resolved. A single weighted spacer
+                // keeps the bottom controls exactly where they sit while the
+                // canvas plays.
+                Spacer(modifier = Modifier.weight(1f))
+
+                if (!canvasAvailable) {
+                    SpatialFlowArtworkPager(
+                        mediaMetadata = mediaMetadata,
+                        queueWindows = queueWindows,
+                        currentWindowIndex = currentWindowIndex,
+                        userScrollEnabled = !lyricsModeEnabled && !queueExpanded,
+                        artUrl = artUrl,
+                        isPlaying = isPlaying,
+                        cornerRadius = 16.dp,
+                        // No elevation shadow: the 16dp drop shadow read as a
+                        // black border/background hugging the artwork, glaring
+                        // on the light backdrop. The sheet stays flat.
+                        shadowElevation = 0.dp,
+                        onPlaySongAtWindow = { windowIndex ->
+                            val window = queueWindows.getOrNull(windowIndex) ?: return@SpatialFlowArtworkPager
+                            playerConnection.player.seekToDefaultPosition(window.firstPeriodIndex)
+                            playerConnection.player.playWhenReady = true
+                        },
+                        modifier = Modifier.size(albumArtSize),
+                    )
+
+                    // Breathing room between the artwork and the title stack:
+                    // the artwork sits a bit higher while the bottom controls
+                    // stay pinned exactly where they sit while the canvas
+                    // plays (the weighted spacer above absorbs the shift).
+                    Spacer(modifier = Modifier.height(36.dp))
+                }
+
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp)
+                            .onGloballyPositioned { titleTopInRootY = it.positionInRoot().y },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(
+                            text = mediaMetadata.title,
+                            style =
+                                if (canvasAvailable) {
+                                    MaterialTheme.typography.displayMedium
+                                } else {
+                                    MaterialTheme.typography.headlineMediumEmphasized
+                                },
+                            fontWeight = FontWeight.Bold,
+                            color = contentColor,
+                            maxLines = 1,
+                            modifier = Modifier.basicMarqueeWithFadedEdges(),
+                        )
+                        Spacer(modifier = Modifier.height(if (canvasAvailable) 6.dp else 4.dp))
+                        Text(
+                            text = mediaMetadata.artists.joinToString { it.name },
+                            style = if (canvasAvailable) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodyMedium,
+                            color = contentSecondary,
+                            maxLines = 1,
+                            modifier =
+                                Modifier
+                                    .basicMarqueeWithFadedEdges()
+                                    .clickable {
+                                        mediaMetadata.artists.firstOrNull()?.id?.let { artistId ->
+                                            state.collapseSoft()
+                                            navController.navigate("artist/$artistId")
+                                        }
+                                    },
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .layout { measurable, constraints ->
+                                val pad = 20.dp.roundToPx()
+                                val placeable =
+                                    measurable.measure(
+                                        constraints.copy(
+                                            maxWidth = constraints.maxWidth + 2 * pad,
+                                        ),
+                                    )
+                                layout(placeable.width - 2 * pad, placeable.height) {
+                                    placeable.place(-pad, 0)
+                                }
+                            }.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    SplitLikeDislikeChip(
+                        isLiked = currentSong?.song?.liked == true,
+                        isDisliked = false,
+                        likesCount = "Like",
+                        onLikeClick = { playerConnection.toggleLike() },
+
+                        onDislikeClick = {
+                            if (currentSong?.song?.liked == true) playerConnection.toggleLike()
+                        },
+                        contentColor = contentColor,
+                        accentColor = dynamicAccentColor,
+                        isDark = surfaceIsDark,
+                    )
+
+                    PillChip(
+                        icon = painterResource(id = R.drawable.spatialflow_ic_haptic),
+                        label = "Music Haptics",
+                        isSelected = hapticsEnabled,
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            val next = !hapticsEnabled
+                            MusicHapticsSettings.setEnabled(context, next)
+                            hapticsEnabled = next
+                        },
+                        contentColor = contentColor,
+                        accentColor = dynamicAccentColor,
+                        isDark = surfaceIsDark,
+                    )
+
+                    PillChip(
+                        icon = painterResource(id = R.drawable.spatialflow_ic_lyrics),
+                        label = "Lyrics",
+                        isSelected = lyricsModeEnabled,
+                        onClick = { lyricsModeEnabled = true },
+                        contentColor = contentColor,
+                        accentColor = dynamicAccentColor,
+                        isDark = surfaceIsDark,
+                        modifier =
+                            Modifier.onGloballyPositioned { coordinates ->
+                                val position = coordinates.positionInRoot()
+                                lyricsButtonCenterInRoot =
+                                    Offset(
+                                        x = position.x + coordinates.size.width / 2f,
+                                        y = position.y + coordinates.size.height / 2f,
+                                    )
+                            },
+                    )
+
+                    PillChip(
+                        icon = painterResource(id = R.drawable.spatialflow_ic_share),
+                        label = "Share",
+                        onClick = {
+                            val shareIntent =
+                                Intent().apply {
+                                    action = Intent.ACTION_SEND
+                                    putExtra(
+                                        Intent.EXTRA_TEXT,
+                                        "https://music.youtube.com/watch?v=${mediaMetadata.id}",
+                                    )
+                                    type = "text/plain"
+                                }
+                            context.startActivity(Intent.createChooser(shareIntent, "Share Track"))
+                        },
+                        contentColor = contentColor,
+                        accentColor = dynamicAccentColor,
+                        isDark = surfaceIsDark,
+                    )
+
+                    val realDownloaded = download?.state == Download.STATE_COMPLETED
+                    val realDownloadProgress =
+                        if (download?.state == Download.STATE_DOWNLOADING) {
+                            val media3Percent = (download?.percentDownloaded ?: 0f).toDouble()
+                            val fetchPercent = fetchProgressMap[downloadUtil
+                                .currentSourceDownloadTarget(mediaMetadata.id)
+                                .key]?.percent ?: 0
+                            maxOf(media3Percent, fetchPercent.toDouble()).roundToInt()
+                        } else {
+                            null
+                        }
+                    val isDownloading = realDownloadProgress != null
+
+                    val downloadLabel =
+                        when {
+                            realDownloaded -> "Downloaded"
+                            isDownloading -> "Downloading $realDownloadProgress%"
+                            else -> "Download"
+                        }
+                    val downloadIcon: Any =
+                        if (realDownloaded) {
+                            painterResource(id = R.drawable.spatialflow_ic_downloaded)
+                        } else {
+                            painterResource(id = R.drawable.spatialflow_ic_download)
+                        }
+                    PillChip(
+                        icon = downloadIcon,
+                        label = downloadLabel,
+                        isSelected = realDownloaded || isDownloading,
+                        progress = if (isDownloading) (realDownloadProgress ?: 0) / 100f else null,
+                        onClick = {
+                            val target = downloadUtil.currentSourceDownloadTarget(mediaMetadata.id)
+                            when (download?.state) {
+                                Download.STATE_COMPLETED, Download.STATE_QUEUED, Download.STATE_DOWNLOADING -> {
+                                    DownloadService.sendRemoveDownload(
+                                        context,
+                                        ExoDownloadService::class.java,
+                                        target.key,
+                                        false,
+                                    )
+                                }
+
+                                else -> {
+
+                                    val dl = download
+                                    if (dl != null && dl.state != Download.STATE_COMPLETED) {
+                                        DownloadService.sendRemoveDownload(
+                                            context,
+                                            ExoDownloadService::class.java,
+                                            dl.request.id,
+                                            false,
+                                        )
+                                    }
+                                    val downloadRequest =
+                                        DownloadRequest
+                                            .Builder(target.key, mediaMetadata.id.toUri())
+                                            .setCustomCacheKey(target.key)
+                                            .setData(mediaMetadata.title.toByteArray())
+                                            .build()
+                                    DownloadService.sendAddDownload(
+                                        context,
+                                        ExoDownloadService::class.java,
+                                        downloadRequest,
+                                        false,
+                                    )
+                                }
+                            }
+                        },
+                        contentColor = contentColor,
+                        accentColor = dynamicAccentColor,
+                        isDark = surfaceIsDark,
+                    )
+
+                    Spacer(modifier = Modifier.width(12.dp))
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                WavySliderWithLabels(
+                    currentPositionProvider = positionProvider,
+                    duration = duration,
+                    isPlaying = isPlaying,
+                    onSeekTo = { seekMs ->
+                        onSeek(seekMs)
+                        onSeekFinished()
+                    },
+                    dynamicAccentColor = dynamicAccentColor,
+                    contentColor = contentColor,
+                    contentSecondary = contentSecondary,
+                    isDark = surfaceIsDark,
+                    currentFormat = currentFormat,
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                ButtonGroup(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                    expandedRatio = 0.3f,
+                    overflowIndicator = {},
+                ) {
+                    val scope = this
+
+                    customItem(
+                        buttonGroupContent = {
+                            val interactionSource = remember { MutableInteractionSource() }
+                            val isPressed by interactionSource.collectIsPressedAsState()
+                            val cornerRadius by animateDpAsState(
+                                targetValue = if (isPressed) 12.dp else 28.dp,
+                                animationSpec =
+                                    spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessMedium,
+                                    ),
+                                label = "PrevCorner",
+                            )
+                            Button(
+                                onClick = { playerConnection.seekToPrevious() },
+                                modifier =
+                                    with(scope) {
+                                        Modifier
+                                            .animateWidth(interactionSource)
+                                            .weight(1f)
+                                            .height(76.dp)
+                                    },
+                                interactionSource = interactionSource,
+                                shape = RoundedCornerShape(cornerRadius),
+                                colors =
+                                    ButtonDefaults.buttonColors(
+                                        containerColor = contentColor.copy(alpha = if (surfaceIsDark) 0.08f else 0.06f),
+                                        contentColor = contentColor,
+                                    ),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                                enabled = canSkipPrevious,
+                            ) {
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.spatialflow_ic_skip_previous),
+                                        contentDescription = "Previous Song",
+                                        modifier = Modifier.size(36.dp),
+                                    )
+                                }
+                            }
+                        },
+                        menuContent = {},
+                    )
+                    customItem(
+                        buttonGroupContent = {
+                            val interactionSource = remember { MutableInteractionSource() }
+                            val isPressed by interactionSource.collectIsPressedAsState()
+                            val cornerRadius by animateDpAsState(
+                                targetValue = if (isPressed) 12.dp else 28.dp,
+                                animationSpec =
+                                    spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessMedium,
+                                    ),
+                                label = "PlayCorner",
+                            )
+                            Button(
+                                onClick = {
+                                    if (isPlaying) {
+                                        playerConnection.player.pause()
+                                    } else {
+                                        playerConnection.player.play()
+                                    }
+                                },
+                                modifier =
+                                    with(scope) {
+                                        Modifier
+                                            .animateWidth(interactionSource)
+                                            .weight(1.2f)
+                                            .height(76.dp)
+                                    },
+                                interactionSource = interactionSource,
+                                shape = RoundedCornerShape(cornerRadius),
+                                colors =
+                                    ButtonDefaults.buttonColors(
+                                        containerColor = dynamicAccentColor,
+                                        contentColor = if (surfaceIsDark) Color(0xFF1C1B1F) else Color.White,
+                                    ),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                            ) {
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    if (isLoading && !isPlaying) {
+                                        CircularWavyProgressIndicator(modifier = Modifier.size(42.dp))
+                                    } else {
+                                        Icon(
+                                            painter =
+                                                painterResource(
+                                                    id = if (isPlaying) R.drawable.spatialflow_ic_pause else R.drawable.spatialflow_ic_play,
+                                                ),
+                                            contentDescription = if (isPlaying) "Pause" else "Play",
+                                            modifier = Modifier.size(42.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        },
+                        menuContent = {},
+                    )
+                    customItem(
+                        buttonGroupContent = {
+                            val interactionSource = remember { MutableInteractionSource() }
+                            val isPressed by interactionSource.collectIsPressedAsState()
+                            val cornerRadius by animateDpAsState(
+                                targetValue = if (isPressed) 12.dp else 28.dp,
+                                animationSpec =
+                                    spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessMedium,
+                                    ),
+                                label = "NextCorner",
+                            )
+                            Button(
+                                onClick = { playerConnection.seekToNext() },
+                                modifier =
+                                    with(scope) {
+                                        Modifier
+                                            .animateWidth(interactionSource)
+                                            .weight(1f)
+                                            .height(76.dp)
+                                    },
+                                interactionSource = interactionSource,
+                                shape = RoundedCornerShape(cornerRadius),
+                                colors =
+                                    ButtonDefaults.buttonColors(
+                                        containerColor = contentColor.copy(alpha = if (surfaceIsDark) 0.08f else 0.06f),
+                                        contentColor = contentColor,
+                                    ),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                                enabled = canSkipNext,
+                            ) {
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.spatialflow_ic_skip_next),
+                                        contentDescription = "Next Song",
+                                        modifier = Modifier.size(36.dp),
+                                    )
+                                }
+                            }
+                        },
+                        menuContent = {},
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .pointerInput(Unit) {
+                                detectVerticalDragGestures { _, dragAmount ->
+                                    if (dragAmount < -10f && !queueExpanded && !lyricsModeEnabled) {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        queueExpanded = true
+                                    }
+                                }
+                            }.clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                            ) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                queueExpanded = true
+                            },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.spatialflow_ic_keyboard_arrow_down),
+                        contentDescription = "Open Queue",
+                        tint = contentColor.copy(alpha = 0.5f),
+                        modifier =
+                            Modifier
+                                .size(32.dp)
+                                .graphicsLayer { rotationZ = 180f },
+                    )
+                }
+                }
+            }
+
+            if (lyricsRevealProgress > 0f) {
+                SpatialFlowLyricsOverlay(
+                    currentSong = mediaMetadata,
+                    syncedLyrics = syncedLyrics,
+                    plainLyrics = plainLyrics,
+                    lyricsProvider = currentLyricsEntity?.providerName,
+                    currentPositionProvider = positionProvider,
+                    contentReady = lyricsContentReady,
+                    backgroundBrush = lyricsBackgroundBrush,
+                    artUrl = artUrl,
+                    revealProgressProvider = { lyricsRevealProgress },
+                    revealCenterProvider = { lyricsButtonCenterInRoot },
+                    // Constant-white lyrics text over the constant dark
+                    // backdrop, independent of theme and canvas state.
+                    contentColor = Color.White,
+                    contentSecondary = Color.White.copy(alpha = 0.6f),
+                    onSeekTo = onSeek,
+                    onDismiss = { lyricsModeEnabled = false },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+
+            SlidingQueueDrawer(
+                isQueueExpanded = queueExpanded,
+                onQueueExpandedChange = { queueExpanded = it },
+                queueWindows = queueWindows,
+                currentSongIndex = currentWindowIndex,
+                isShuffleEnabled = shuffleModeEnabled,
+                repeatMode = repeatMode,
+                sleepTimerMode = sleepTimerMode,
+                onReorderQueue = { from, to ->
+                    if (from == to) return@SlidingQueueDrawer
+                    if (!playerConnection.player.shuffleModeEnabled) {
+                        playerConnection.player.moveMediaItem(from, to)
+                    } else {
+                        playerConnection.localPlayer.setShuffleOrder(
+                            ShuffleOrder.DefaultShuffleOrder(
+                                queueWindows
+                                    .map { it.firstPeriodIndex }
+                                    .toMutableList()
+                                    .move(from, to)
+                                    .toIntArray(),
+                                System.currentTimeMillis(),
+                            ),
+                        )
+                    }
+                },
+                onPlaySongAtIndex = { windowIndex ->
+                    val window = queueWindows.getOrNull(windowIndex) ?: return@SlidingQueueDrawer
+                    playerConnection.player.seekToDefaultPosition(window.firstPeriodIndex)
+                    playerConnection.player.playWhenReady = true
+                },
+                onToggleShuffle = {
+                    playerConnection.player.shuffleModeEnabled = !shuffleModeEnabled
+                },
+                onToggleLoopMode = {
+
+                    playerConnection.player.repeatMode =
+                        when (repeatMode) {
+                            androidx.media3.common.Player.REPEAT_MODE_OFF ->
+                                androidx.media3.common.Player.REPEAT_MODE_ALL
+
+                            androidx.media3.common.Player.REPEAT_MODE_ALL ->
+                                androidx.media3.common.Player.REPEAT_MODE_ONE
+
+                            else -> androidx.media3.common.Player.REPEAT_MODE_OFF
+                        }
+                },
+                onShowSleepTimerDialog = { showSleepTimerDialog = true },
+                playerBackgroundColor = playerBackgroundColor,
+                dynamicAccentColor = dynamicAccentColor,
+                isDark = isDark,
+            )
+
+            if (showSleepTimerDialog) {
+                SpatialFlowSleepTimerSheet(
+                    onDismissRequest = { showSleepTimerDialog = false },
+                    sleepTimerEndTime = sleepTimer.triggerTime,
+                    sleepTimerMode = sleepTimerMode,
+                    onStartTimer = { mins -> playerConnection.service.sleepTimer.start(mins) },
+                    onCancelTimer = { playerConnection.service.sleepTimer.clear() },
+                    onSetEndOfSong = { enable ->
+                        if (enable) {
+                            playerConnection.service.sleepTimer.start(-1)
+                        } else {
+                            playerConnection.service.sleepTimer.clear()
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SpatialFlowArtworkPager(
+    mediaMetadata: MediaMetadata,
+    queueWindows: List<androidx.media3.common.Timeline.Window>,
+    currentWindowIndex: Int,
+    userScrollEnabled: Boolean,
+    artUrl: String?,
+    isPlaying: Boolean,
+    cornerRadius: androidx.compose.ui.unit.Dp,
+    shadowElevation: androidx.compose.ui.unit.Dp,
+    onPlaySongAtWindow: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val pagerState =
+        rememberPagerState(initialPage = currentWindowIndex.coerceAtLeast(0)) {
+            queueWindows.size.coerceAtLeast(1)
+        }
+
+    LaunchedEffect(currentWindowIndex) {
+        if (currentWindowIndex >= 0 &&
+            currentWindowIndex < pagerState.pageCount &&
+            pagerState.currentPage != currentWindowIndex
+        ) {
+            pagerState.animateScrollToPage(currentWindowIndex)
+        }
+    }
+
+    LaunchedEffect(pagerState.currentPage, pagerState.isScrollInProgress) {
+        if (!pagerState.isScrollInProgress &&
+            currentWindowIndex >= 0 &&
+            pagerState.currentPage != currentWindowIndex
+        ) {
+            onPlaySongAtWindow(pagerState.currentPage)
+        }
+    }
+
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center,
+    ) {
+        HorizontalPager(
+            state = pagerState,
+            userScrollEnabled = userScrollEnabled,
+            modifier = Modifier.fillMaxSize(),
+        ) { page ->
+            val pageMetadata =
+                if (page == currentWindowIndex) {
+                    mediaMetadata
+                } else {
+                    queueWindows.getOrNull(page)?.mediaItem?.metadata ?: mediaMetadata
+                }
+            val pageArtUrl = if (page == currentWindowIndex) artUrl else pageMetadata.thumbnailUrl
+
+            var isError by remember(pageArtUrl) { mutableStateOf(false) }
+
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .shadow(shadowElevation, RoundedCornerShape(cornerRadius))
+                        .clip(RoundedCornerShape(cornerRadius)),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (!pageArtUrl.isNullOrBlank() && !isError) {
+                    AsyncImage(
+                        model = pageArtUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        onError = { isError = true },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Box(
+                        modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .background(
+                                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                                        colors =
+                                            listOf(
+                                                MaterialTheme.colorScheme.surfaceVariant,
+                                                MaterialTheme.colorScheme.surfaceContainerHighest,
+                                            ),
+                                    ),
+                                ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.spatialflow_ic_music_note),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.size(96.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,1315 @@
+/*
+ * kongamusic (2026)
+ * © Samk
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
+
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
+
+package moe.kongamusic.ui.screens.settings
+
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.view.View
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
+import moe.kongamusic.LocalPlayerAwareWindowInsets
+import moe.kongamusic.R
+import moe.kongamusic.constants.AppFontPreference
+import moe.kongamusic.constants.AppleMusicAnimatedArtworkKey
+import moe.kongamusic.constants.AppleMusicExperienceKey
+import moe.kongamusic.constants.BackdropBlurAmountKey
+import moe.kongamusic.constants.BackdropEnabledKey
+import moe.kongamusic.constants.BlurRadiusKey
+import moe.kongamusic.constants.CropThumbnailToSquareKey
+import moe.kongamusic.constants.CustomFontNameKey
+import moe.kongamusic.constants.CustomFontUriKey
+import moe.kongamusic.constants.DarkModeKey
+import moe.kongamusic.constants.DefaultOpenTabKey
+import moe.kongamusic.constants.DisableAnimationsKey
+import moe.kongamusic.constants.DisableBlurKey
+import moe.kongamusic.constants.DynamicThemeKey
+import moe.kongamusic.constants.FontPreferenceKey
+import moe.kongamusic.constants.ForceHighRefreshRateKey
+import moe.kongamusic.constants.HideStatusBarKey
+import moe.kongamusic.constants.GridItemSize
+import moe.kongamusic.constants.GridItemsSizeKey
+import moe.kongamusic.constants.HidePlayerThumbnailKey
+import moe.kongamusic.constants.HideScrollbarKey
+import moe.kongamusic.constants.LiquidGlassEnabledKey
+import moe.kongamusic.constants.MinimalHomeModeKey
+import moe.kongamusic.constants.LyricsBackgroundStyle
+import moe.kongamusic.constants.LyricsBackgroundStyleKey
+import moe.kongamusic.constants.MiniPlayerBackgroundStyle
+import moe.kongamusic.constants.MiniPlayerBackgroundStyleKey
+import moe.kongamusic.constants.PlayerBackgroundStyle
+import moe.kongamusic.constants.PlayerBackgroundStyleKey
+import moe.kongamusic.constants.PlayerButtonsStyle
+import moe.kongamusic.constants.PlayerButtonsStyleKey
+import moe.kongamusic.constants.PlayerDesignStyle
+import moe.kongamusic.constants.PlayerDesignStyleKey
+import moe.kongamusic.constants.PureBlackKey
+import moe.kongamusic.constants.RandomThemeOnStartupKey
+import moe.kongamusic.constants.ShowPlayerVolumeBarKey
+import moe.kongamusic.constants.SliderStyle
+import moe.kongamusic.constants.SliderStyleKey
+import moe.kongamusic.constants.TabletModeEnabledKey
+import moe.kongamusic.constants.ThumbnailCornerRadiusKey
+import moe.kongamusic.constants.WallpaperExtractionFailedKey
+import moe.kongamusic.constants.UiScaleFactorKey
+import moe.kongamusic.ui.component.DefaultDialog
+import moe.kongamusic.ui.component.EnumListPreference
+import moe.kongamusic.ui.component.FrostedHeaderPill
+import moe.kongamusic.ui.component.IconButton
+import moe.kongamusic.ui.component.ListPreference
+import moe.kongamusic.ui.component.PreferenceEntry
+import moe.kongamusic.ui.component.PreferenceGroup
+import moe.kongamusic.ui.component.SwitchPreference
+import moe.kongamusic.ui.component.ThumbnailCornerRadiusSelectorButton
+import moe.kongamusic.ui.player.StyledPlaybackSlider
+import moe.kongamusic.ui.theme.CustomFontLoader
+import moe.kongamusic.ui.utils.backToMain
+import moe.kongamusic.utils.isLowRamDevice
+import moe.kongamusic.utils.rememberEnumPreference
+import moe.kongamusic.utils.rememberPreference
+import kotlin.math.roundToInt
+import androidx.compose.foundation.layout.asPaddingValues
+import moe.kongamusic.ui.screens.ScreenHeaderHaze
+import moe.kongamusic.ui.screens.rememberScreenHeaderHaze
+import moe.kongamusic.LocalStableSystemBarsTopPadding
+import dev.chrisbanes.haze.hazeSource
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AppearanceSettings(navController: NavController, scrollTo: String? = null) {
+    val context = LocalContext.current
+    val defaultDisableAnimations = remember(context) { context.isLowRamDevice() }
+    val (wallpaperExtractionFailed) =
+        rememberPreference(WallpaperExtractionFailedKey, defaultValue = false)
+    val (dynamicTheme, onDynamicThemeChange) =
+        rememberPreference(
+            DynamicThemeKey,
+            defaultValue = true,
+        )
+    val (randomThemeOnStartup, onRandomThemeOnStartupChange) =
+        rememberPreference(
+            RandomThemeOnStartupKey,
+            defaultValue = false,
+        )
+    val (darkMode, onDarkModeChange) =
+        rememberEnumPreference(
+            DarkModeKey,
+            defaultValue = DarkMode.AUTO,
+        )
+    val (playerDesignStyle, onPlayerDesignStyleChange) =
+        rememberEnumPreference(
+            PlayerDesignStyleKey,
+            defaultValue = PlayerDesignStyle.V4,
+        )
+    val (_, onAppleMusicExperienceChange) =
+        rememberPreference(
+            AppleMusicExperienceKey,
+            defaultValue = false,
+        )
+    val (appleMusicAnimatedArtwork, onAppleMusicAnimatedArtworkChange) =
+        rememberPreference(
+            AppleMusicAnimatedArtworkKey,
+            defaultValue = true,
+        )
+    var showSfProFontPicker by rememberSaveable {
+        mutableStateOf(false)
+    }
+    val (showPlayerVolumeBar, onShowPlayerVolumeBarChange) =
+        rememberPreference(
+            ShowPlayerVolumeBarKey,
+            defaultValue = true,
+        )
+    val (hidePlayerThumbnail, onHidePlayerThumbnailChange) =
+        rememberPreference(
+            HidePlayerThumbnailKey,
+            defaultValue = false,
+        )
+    val (thumbnailCornerRadius, onThumbnailCornerRadiusChange) =
+        rememberPreference(
+            key = ThumbnailCornerRadiusKey,
+            defaultValue = 16f,
+        )
+    val (cropThumbnailToSquare, onCropThumbnailToSquareChange) =
+        rememberPreference(
+            CropThumbnailToSquareKey,
+            defaultValue = false,
+        )
+    val (playerBackground, onPlayerBackgroundChange) =
+        rememberEnumPreference(
+            PlayerBackgroundStyleKey,
+            defaultValue = PlayerBackgroundStyle.DEFAULT,
+        )
+    val (configuredLyricsBackground, onLyricsBackgroundChange) =
+        rememberEnumPreference(
+            LyricsBackgroundStyleKey,
+            defaultValue = LyricsBackgroundStyle.DEFAULT,
+        )
+    val (miniPlayerBackground, onMiniPlayerBackgroundChange) =
+        rememberEnumPreference(
+            MiniPlayerBackgroundStyleKey,
+            defaultValue = MiniPlayerBackgroundStyle.THEME,
+        )
+    val (liquidGlassEnabled, onLiquidGlassEnabledChange) =
+        rememberPreference(
+            LiquidGlassEnabledKey,
+            defaultValue = false,
+        )
+    val (pureBlack, onPureBlackChange) = rememberPreference(PureBlackKey, defaultValue = false)
+    val (disableBlur, onDisableBlurChange) = rememberPreference(DisableBlurKey, defaultValue = false)
+    val (disableAnimations, onDisableAnimationsChange) =
+        rememberPreference(
+            DisableAnimationsKey,
+            defaultValue = defaultDisableAnimations,
+        )
+    val (forceHighRefreshRate, onForceHighRefreshRateChange) =
+        rememberPreference(
+            ForceHighRefreshRateKey,
+            defaultValue = false,
+        )
+    val (hideStatusBar, onHideStatusBarChange) =
+        rememberPreference(
+            HideStatusBarKey,
+            defaultValue = false,
+        )
+    val (uiScale, onUiScaleChange) =
+        rememberPreference(
+            UiScaleFactorKey,
+            defaultValue = 1.0f,
+        )
+    val (tabletModeEnabled, onTabletModeEnabledChange) =
+        rememberPreference(
+            TabletModeEnabledKey,
+            defaultValue = false,
+        )
+    val (blurRadius, onBlurRadiusChange) = rememberPreference(BlurRadiusKey, defaultValue = 48f)
+    val (backdropEnabled, onBackdropEnabledChange) = rememberPreference(BackdropEnabledKey, defaultValue = true)
+    val (backdropBlurAmount, onBackdropBlurAmountChange) = rememberPreference(BackdropBlurAmountKey, defaultValue = 60)
+    val (fontPreference, onFontPreferenceChange) =
+        rememberEnumPreference(
+            FontPreferenceKey,
+            defaultValue = AppFontPreference.DEFAULT,
+        )
+    val (customFontUri, onCustomFontUriChange) = rememberPreference(CustomFontUriKey, defaultValue = "")
+    val (customFontName, onCustomFontNameChange) = rememberPreference(CustomFontNameKey, defaultValue = "")
+    val (defaultOpenTab, onDefaultOpenTabChange) =
+        rememberEnumPreference(
+            DefaultOpenTabKey,
+            defaultValue = NavigationTab.HOME,
+        )
+    val (playerButtonsStyle, onPlayerButtonsStyleChange) =
+        rememberEnumPreference(
+            PlayerButtonsStyleKey,
+            defaultValue = PlayerButtonsStyle.DEFAULT,
+        )
+    val (sliderStyle, onSliderStyleChange) =
+        rememberEnumPreference(
+            SliderStyleKey,
+            defaultValue = SliderStyle.Standard,
+        )
+    val (gridItemSize, onGridItemSizeChange) =
+        rememberEnumPreference(
+            GridItemsSizeKey,
+            defaultValue = GridItemSize.SMALL,
+        )
+    val (hideScrollbar, onHideScrollbarChange) =
+        rememberPreference(HideScrollbarKey, defaultValue = false)
+    val (minimalHomeMode, onMinimalHomeModeChange) =
+        rememberPreference(MinimalHomeModeKey, defaultValue = false)
+
+    val customFontPickerLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri == null) return@rememberLauncherForActivityResult
+            if (!CustomFontLoader.isSupportedTtf(context, uri)) {
+                Toast.makeText(context, context.getString(R.string.custom_font_invalid), Toast.LENGTH_SHORT).show()
+                return@rememberLauncherForActivityResult
+            }
+
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }
+            if (customFontUri.isNotBlank() && customFontUri != uri.toString()) {
+                runCatching {
+                    context.contentResolver.releasePersistableUriPermission(
+                        Uri.parse(customFontUri),
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
+                }
+            }
+
+            onCustomFontUriChange(uri.toString())
+            onCustomFontNameChange(CustomFontLoader.displayName(context, uri))
+            onFontPreferenceChange(AppFontPreference.CUSTOM)
+        }
+    val pickCustomFont =
+        remember(customFontPickerLauncher) {
+            {
+                customFontPickerLauncher.launch(CustomFontLoader.supportedMimeTypes)
+            }
+        }
+    val onFontPreferenceSelected =
+        remember(customFontUri, onFontPreferenceChange, pickCustomFont) {
+            { value: AppFontPreference ->
+                onFontPreferenceChange(value)
+                if (value == AppFontPreference.CUSTOM && customFontUri.isBlank()) {
+                    pickCustomFont()
+                }
+            }
+        }
+
+    val availableBackgroundStyles =
+        PlayerBackgroundStyle.entries.filter {
+            it != PlayerBackgroundStyle.BLUR || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+        }
+    val availableLyricsBackgroundStyles =
+        remember {
+            buildList {
+                add(LyricsBackgroundStyle.DEFAULT)
+                add(LyricsBackgroundStyle.FOLLOW_THEME)
+                add(LyricsBackgroundStyle.COLORING)
+                add(LyricsBackgroundStyle.MOVING_BLUR)
+            }
+        }
+    val lyricsBackground = configuredLyricsBackground.resolveFor(playerBackground)
+    val isPlayerStyleCustomizationEnabled =
+        when (playerDesignStyle) {
+            PlayerDesignStyle.V7,
+            PlayerDesignStyle.V9,
+            PlayerDesignStyle.APPLE_MUSIC,
+            PlayerDesignStyle.V10,
+            PlayerDesignStyle.BITCHORD,
+            PlayerDesignStyle.TIKTOK,
+            PlayerDesignStyle.SIMPMUSIC,
+            PlayerDesignStyle.SPATIALFLOW,
+            -> false
+
+            else -> true
+        }
+    val isLyricsBackgroundStyleAvailable =
+        playerDesignStyle != PlayerDesignStyle.BITCHORD &&
+            playerDesignStyle != PlayerDesignStyle.APPLE_MUSIC &&
+            playerDesignStyle != PlayerDesignStyle.TIKTOK &&
+            playerDesignStyle != PlayerDesignStyle.SIMPMUSIC &&
+            playerDesignStyle != PlayerDesignStyle.SPATIALFLOW &&
+            playerDesignStyle != PlayerDesignStyle.TUI
+    val isVolumeBarSupported = playerDesignStyle == PlayerDesignStyle.V7
+    val isSystemInDarkTheme = isSystemInDarkTheme()
+    val useDarkTheme =
+        remember(darkMode, isSystemInDarkTheme) {
+            if (darkMode == DarkMode.AUTO) isSystemInDarkTheme else darkMode == DarkMode.ON
+        }
+
+    val supportedHighestFps = rememberSupportedHighestFps()
+    val isHighRefreshRateSupported = supportedHighestFps > HIGH_REFRESH_RATE_THRESHOLD_FPS
+
+    ApplyRefreshRate(
+        isEnabled = forceHighRefreshRate && isHighRefreshRateSupported,
+        targetFps = supportedHighestFps,
+    )
+
+    var showSliderOptionDialog by rememberSaveable {
+        mutableStateOf(false)
+    }
+
+    LaunchedEffect(isPlayerStyleCustomizationEnabled, playerBackground) {
+        if (!isPlayerStyleCustomizationEnabled && playerBackground != PlayerBackgroundStyle.DEFAULT) {
+            onPlayerBackgroundChange(PlayerBackgroundStyle.DEFAULT)
+        }
+    }
+
+    LaunchedEffect(isPlayerStyleCustomizationEnabled) {
+        if (!isPlayerStyleCustomizationEnabled) {
+            showSliderOptionDialog = false
+        }
+    }
+
+    if (showSliderOptionDialog && isPlayerStyleCustomizationEnabled) {
+        val sliderStyles =
+            remember {
+                listOf(
+                    SliderStyle.Standard,
+                    SliderStyle.Wavy,
+                    SliderStyle.Thick,
+                    SliderStyle.Circular,
+                    SliderStyle.Simple,
+                )
+            }
+        DefaultDialog(
+            buttons = {
+                TextButton(
+                    onClick = { showSliderOptionDialog = false },
+                    shapes = ButtonDefaults.shapes(),
+                ) {
+                    Text(text = stringResource(android.R.string.cancel))
+                }
+            },
+            onDismiss = {
+                showSliderOptionDialog = false
+            },
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                sliderStyles.chunked(3).forEach { styleRow ->
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        styleRow.forEach { style ->
+                            SliderStyleOptionCard(
+                                sliderStyle = style,
+                                selected = sliderStyle == style,
+                                onClick = {
+                                    onSliderStyleChange(style)
+                                    showSliderOptionDialog = false
+                                },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        repeat(3 - styleRow.size) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showSfProFontPicker) {
+        SfProFontPickerDialog(
+            onDismiss = { showSfProFontPicker = false },
+            onApply = { uri, name ->
+                onCustomFontUriChange(uri)
+                onCustomFontNameChange(name)
+                onFontPreferenceChange(AppFontPreference.CUSTOM)
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.sf_pro_applied, name),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            },
+        )
+    }
+
+    val headerHaze = rememberScreenHeaderHaze()
+    val systemBarsTopPadding = LocalStableSystemBarsTopPadding.current
+
+    Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        topBar = {
+            TopAppBar(
+                title = {},
+                navigationIcon = {
+                    FrostedHeaderPill(plain = true) {
+                        IconButton(
+                            onClick = navController::navigateUp,
+                            onLongClick = navController::backToMain,
+                        ) {
+                            Icon(
+                                painterResource(R.drawable.arrow_back),
+                                contentDescription = null,
+                            )
+                        }
+                        Text(
+                            text = stringResource(R.string.appearance),
+                            color = MaterialTheme.colorScheme.onBackground,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            modifier = Modifier.padding(end = 4.dp),
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent,
+                ),
+            )
+        },
+    ) { innerPadding ->
+        Box(modifier = Modifier.fillMaxSize()) {
+
+        val playerAwareBottomPadding =
+            LocalPlayerAwareWindowInsets.current
+                .only(WindowInsetsSides.Bottom)
+                .asPaddingValues()
+                .calculateBottomPadding()
+        val topPadding = innerPadding.calculateTopPadding()
+        val scrollState = rememberScrollState()
+        val positions = rememberPreferencePositions()
+
+        LaunchedEffect(scrollTo) { positions.scrollToKey(scrollTo, scrollState) }
+
+        Column(
+            Modifier
+                .windowInsetsPadding(LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Horizontal))
+                .then(positions.containerModifier())
+                .verticalScroll(scrollState)
+                .hazeSource(headerHaze)
+                .padding(top = topPadding)
+                .padding(bottom = playerAwareBottomPadding + SettingsDimensions.ScreenBottomPadding),
+        ) {
+            PreferenceGroup(
+                modifier = positions.modifierFor("dynamic_theme"),
+                title = stringResource(R.string.theme),
+            ) {
+                item {
+                    Column(modifier = positions.modifierFor("liquid_glass_effects")) {
+                        SwitchPreference(
+                            title = { Text(stringResource(R.string.liquid_glass_effects)) },
+                            description = stringResource(R.string.liquid_glass_effects_desc),
+                            icon = { Icon(painterResource(R.drawable.blur_on), null) },
+                            checked = liquidGlassEnabled,
+                            onCheckedChange = onLiquidGlassEnabledChange,
+                        )
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && liquidGlassEnabled) {
+                            Text(
+                                text = stringResource(R.string.liquid_glass_effects_unsupported),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 56.dp, top = 4.dp, end = 16.dp),
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    SwitchPreference(
+                        title = { Text(stringResource(R.string.enable_dynamic_theme)) },
+                        icon = { Icon(painterResource(R.drawable.palette), null) },
+                        checked = dynamicTheme,
+                        onCheckedChange = onDynamicThemeChange,
+                    )
+                }
+
+                item(visible = dynamicTheme && Build.VERSION.SDK_INT < Build.VERSION_CODES.S && wallpaperExtractionFailed) {
+                    PreferenceEntry(
+                        modifier = positions.modifierFor("wallpaper_permission"),
+                        title = { Text(stringResource(R.string.wallpaper_permission)) },
+                        description = stringResource(R.string.wallpaper_permission_desc),
+                        icon = { Icon(painterResource(R.drawable.storage), null) },
+                        onClick = {
+                            val intent =
+                                android.content.Intent(
+                                    android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    android.net.Uri.fromParts("package", context.packageName, null),
+                                )
+                            context.startActivity(intent)
+                        },
+                    )
+                }
+
+                item(visible = !dynamicTheme) {
+                    SwitchPreference(
+                        modifier = positions.modifierFor("random_theme_on_startup"),
+                        title = { Text(stringResource(R.string.random_theme_on_startup)) },
+                        description = stringResource(R.string.random_theme_on_startup_desc),
+                        icon = { Icon(painterResource(R.drawable.shuffle), null) },
+                        checked = randomThemeOnStartup,
+                        onCheckedChange = onRandomThemeOnStartupChange,
+                    )
+                }
+
+                item(visible = !dynamicTheme || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                    Column(modifier = positions.modifierFor("color_palette")) {
+                        PreferenceEntry(
+                            modifier = positions.modifierFor("palette_picker"),
+                            title = { Text(stringResource(R.string.color_palette)) },
+                            description = stringResource(R.string.customize_theme_colors),
+                            icon = { Icon(painterResource(R.drawable.format_paint), null) },
+                            onClick = { navController.navigate("settings/appearance/palette_picker") },
+                        )
+                    }
+                }
+
+                item {
+                    Column(modifier = positions.modifierFor("app_icon")) {
+                        PreferenceEntry(
+                            title = { Text(stringResource(R.string.app_icon)) },
+                            description = stringResource(R.string.app_icon_description),
+                            icon = { Icon(painterResource(R.drawable.app_icon_small), null) },
+                            onClick = { navController.navigate("settings/appearance/icon") },
+                        )
+                    }
+                }
+
+                item {
+                    Column(modifier = positions.modifierFor("dark_theme")) {
+                        EnumListPreference(
+                            title = { Text(stringResource(R.string.dark_theme)) },
+                            icon = { Icon(painterResource(R.drawable.dark_mode), null) },
+                            selectedValue = darkMode,
+                            onValueSelected = onDarkModeChange,
+                            valueText = {
+                                when (it) {
+                                    DarkMode.ON -> stringResource(R.string.dark_theme_on)
+                                    DarkMode.OFF -> stringResource(R.string.dark_theme_off)
+                                    DarkMode.AUTO -> stringResource(R.string.dark_theme_follow_system)
+                                }
+                            },
+                        )
+                    }
+                }
+
+                item(visible = useDarkTheme) {
+                    Column(modifier = positions.modifierFor("pure_black")) {
+                        SwitchPreference(
+                            title = { Text(stringResource(R.string.pure_black)) },
+                            icon = { Icon(painterResource(R.drawable.contrast), null) },
+                            checked = pureBlack,
+                            onCheckedChange = onPureBlackChange,
+                        )
+                    }
+                }
+
+                item {
+                    SwitchPreference(
+                        title = { Text(stringResource(R.string.disable_blur)) },
+                        description = stringResource(R.string.disable_blur_desc),
+                        icon = { Icon(painterResource(R.drawable.blur_off), null) },
+                        checked = disableBlur,
+                        onCheckedChange = onDisableBlurChange,
+                    )
+                }
+
+                item {
+                    SwitchPreference(
+                        modifier = positions.modifierFor("disable_animations"),
+                        title = { Text(stringResource(R.string.disable_animations)) },
+                        description = stringResource(R.string.disable_animations_desc),
+                        icon = { Icon(painterResource(R.drawable.animation), null) },
+                        checked = disableAnimations,
+                        onCheckedChange = onDisableAnimationsChange,
+                    )
+                }
+
+                item {
+                    Column(modifier = positions.modifierFor("hide_status_bar")) {
+                        SwitchPreference(
+                            title = { Text(stringResource(R.string.hide_status_bar)) },
+                            description = stringResource(R.string.hide_status_bar_desc),
+                            icon = { Icon(painterResource(R.drawable.visibility_off), null) },
+                            checked = hideStatusBar,
+                            onCheckedChange = onHideStatusBarChange,
+                        )
+                    }
+                }
+
+                item {
+                    Column(modifier = positions.modifierFor("ui_scale")) {
+                        PreferenceEntry(
+                            title = { Text(stringResource(R.string.ui_scale)) },
+                            description = stringResource(R.string.ui_scale_desc),
+                            icon = { Icon(painterResource(R.drawable.text_fields), null) },
+                            content = {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Slider(
+                                    value = uiScale,
+                                    onValueChange = { v ->
+                                        onUiScaleChange((v * 100f).roundToInt() / 100f)
+                                    },
+                                    valueRange = 0.85f..1.30f,
+                                    steps = 44,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Text(
+                                    text = stringResource(R.string.ui_scale_value, (uiScale * 100f).roundToInt()),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(start = 56.dp, top = 4.dp),
+                                )
+                            },
+                        )
+                    }
+                }
+
+                item {
+                    Column(modifier = positions.modifierFor("blur_intensity")) {
+                        PreferenceEntry(
+                            title = { Text(stringResource(R.string.blur_intensity)) },
+                            description = stringResource(R.string.blur_intensity_value, blurRadius.roundToInt()),
+                            icon = { Icon(painterResource(R.drawable.blur_on), null) },
+                            isEnabled = !disableBlur,
+                            content = {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Slider(
+                                    value = blurRadius,
+                                    onValueChange = onBlurRadiusChange,
+                                    valueRange = 0f..64f,
+                                    steps = 63,
+                                    enabled = !disableBlur,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            },
+                        )
+                    }
+                }
+
+                if (playerDesignStyle != PlayerDesignStyle.APPLE_MUSIC) {
+                    item {
+                        SwitchPreference(
+                            title = { Text(stringResource(R.string.album_backdrop)) },
+                            description = stringResource(R.string.album_backdrop_desc),
+                            icon = { Icon(painterResource(R.drawable.blur_on), null) },
+                            checked = backdropEnabled,
+                            onCheckedChange = onBackdropEnabledChange,
+                        )
+                    }
+
+                    item {
+                        PreferenceEntry(
+                            modifier = positions.modifierFor("backdrop_blur_amount"),
+                            title = { Text(stringResource(R.string.backdrop_blur_amount)) },
+                            description = stringResource(R.string.backdrop_blur_amount_value, backdropBlurAmount),
+                            icon = { Icon(painterResource(R.drawable.blur_on), null) },
+                            isEnabled = backdropEnabled,
+                            content = {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Slider(
+                                    value = backdropBlurAmount.toFloat(),
+                                    onValueChange = { onBackdropBlurAmountChange(it.roundToInt()) },
+                                    valueRange = 0f..100f,
+                                    steps = 19,
+                                    enabled = backdropEnabled,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            },
+                        )
+                    }
+                }
+
+                item {
+                    Column(modifier = positions.modifierFor("font_preference")) {
+                        EnumListPreference(
+                            modifier = positions.modifierFor("use_system_font"),
+                            title = { Text(stringResource(R.string.font_preference)) },
+                            description = stringResource(R.string.font_preference_desc),
+                            icon = { Icon(painterResource(R.drawable.text_fields), null) },
+                            selectedValue = fontPreference,
+                            onValueSelected = onFontPreferenceSelected,
+                            valueText = {
+                                when (it) {
+                                    AppFontPreference.DEFAULT -> stringResource(R.string.font_preference_default)
+                                    AppFontPreference.SYSTEM -> stringResource(R.string.font_preference_system)
+                                    AppFontPreference.CUSTOM -> stringResource(R.string.font_preference_custom)
+                                }
+                            },
+                        )
+                    }
+                }
+
+                item(visible = fontPreference == AppFontPreference.CUSTOM) {
+                    val customFontDescription =
+                        if (customFontName.isNotBlank()) {
+                            customFontName
+                        } else if (customFontUri.isBlank()) {
+                            stringResource(R.string.custom_font_desc)
+                        } else {
+                            customFontUri
+                        }
+                    PreferenceEntry(
+                        modifier = positions.modifierFor("custom_font"),
+                        title = { Text(stringResource(R.string.custom_font)) },
+                        description = customFontDescription,
+                        icon = { Icon(painterResource(R.drawable.text_fields), null) },
+                        onClick = pickCustomFont,
+                    )
+                }
+                item {
+                    PreferenceEntry(
+                        modifier = positions.modifierFor("sf_pro_fonts"),
+                        title = { Text(stringResource(R.string.sf_pro_fonts)) },
+                        description = stringResource(R.string.sf_pro_fonts_desc),
+                        icon = { Icon(painterResource(R.drawable.solar_download_minimalistic_linear), null) },
+                        onClick = { showSfProFontPicker = true },
+                    )
+                }
+            }
+
+            PreferenceGroup(
+                modifier = positions.modifierFor("disable_blur"),
+                title = stringResource(R.string.player),
+            ) {
+                item {
+                    Column(modifier = positions.modifierFor("player_design_style")) {
+                        EnumListPreference(
+                            title = { Text(stringResource(R.string.player_design_style)) },
+                            icon = { Icon(painterResource(R.drawable.palette), null) },
+                            selectedValue = playerDesignStyle,
+                            onValueSelected = { style ->
+                                onPlayerDesignStyleChange(style)
+                                if (style != PlayerDesignStyle.APPLE_MUSIC) {
+                                    onAppleMusicExperienceChange(false)
+                                }
+                            },
+                            valueText = {
+                                when (it) {
+                                    PlayerDesignStyle.V4 -> stringResource(R.string.player_design_v4)
+                                    PlayerDesignStyle.V5 -> stringResource(R.string.player_design_v5)
+                                    PlayerDesignStyle.V7 -> stringResource(R.string.player_design_v7)
+                                    PlayerDesignStyle.V9 -> stringResource(R.string.player_design_v9)
+                                    PlayerDesignStyle.APPLE_MUSIC ->
+                                        stringResource(R.string.player_design_apple_music)
+                                    PlayerDesignStyle.V10 ->
+                                        stringResource(R.string.player_design_v10)
+                                    PlayerDesignStyle.BITCHORD ->
+                                        stringResource(R.string.player_design_bitchord)
+                                    PlayerDesignStyle.TIKTOK ->
+                                        stringResource(R.string.player_design_tiktok)
+                                    PlayerDesignStyle.SIMPMUSIC ->
+                                        stringResource(R.string.player_design_simpmusic)
+                                    PlayerDesignStyle.SPATIALFLOW ->
+                                        stringResource(R.string.player_design_spatialflow)
+                                    PlayerDesignStyle.TUI ->
+                                        stringResource(R.string.player_design_tui)
+                                }
+                            },
+                        )
+                    }
+                }
+
+                item {
+                    SwitchPreference(
+                        modifier = positions.modifierFor("show_player_volume_bar"),
+                        title = { Text(stringResource(R.string.show_player_volume_bar)) },
+                        description =
+                            if (isVolumeBarSupported) {
+                                null
+                            } else {
+                                stringResource(R.string.player_volume_bar_v7_v8_only)
+                            },
+                        icon = { Icon(painterResource(R.drawable.volume_up), null) },
+                        checked = showPlayerVolumeBar,
+                        onCheckedChange = onShowPlayerVolumeBarChange,
+                        isEnabled = isVolumeBarSupported,
+                    )
+                }
+
+                item {
+                    Column(modifier = positions.modifierFor("player_background_style")) {
+                        EnumListPreference(
+                            title = { Text(stringResource(R.string.player_background_style)) },
+                            description =
+                                if (isPlayerStyleCustomizationEnabled) {
+                                    null
+                                } else {
+                                    stringResource(R.string.player_background_style_v8_v9_desc)
+                                },
+                            icon = { Icon(painterResource(R.drawable.gradient), null) },
+                            selectedValue = playerBackground,
+                            onValueSelected = { selectedBackground ->
+                                onPlayerBackgroundChange(selectedBackground)
+                                when {
+                                    selectedBackground == PlayerBackgroundStyle.CUSTOM -> {
+                                        onLyricsBackgroundChange(LyricsBackgroundStyle.CUSTOM)
+                                    }
+
+                                    configuredLyricsBackground == LyricsBackgroundStyle.CUSTOM -> {
+                                        onLyricsBackgroundChange(LyricsBackgroundStyle.DEFAULT)
+                                    }
+                                }
+                            },
+                            isEnabled = isPlayerStyleCustomizationEnabled,
+                            valueText = {
+                                when (it) {
+                                    PlayerBackgroundStyle.DEFAULT -> stringResource(R.string.follow_theme)
+                                    PlayerBackgroundStyle.GRADIENT -> stringResource(R.string.gradient)
+                                    PlayerBackgroundStyle.CUSTOM -> stringResource(R.string.custom)
+                                    PlayerBackgroundStyle.BLUR -> stringResource(R.string.player_background_blur)
+                                    PlayerBackgroundStyle.COLORING -> stringResource(R.string.coloring)
+                                    PlayerBackgroundStyle.BLUR_GRADIENT -> stringResource(R.string.blur_gradient)
+                                    PlayerBackgroundStyle.GLOW -> stringResource(R.string.glow)
+                                    PlayerBackgroundStyle.GLOW_ANIMATED -> "Glow Animated"
+                                }
+                            },
+                        )
+                    }
+                }
+
+                item {
+                    Column(modifier = positions.modifierFor("lyrics_background_style")) {
+                        ListPreference(
+                            modifier = positions.modifierFor("lyrics_background_style"),
+                            title = { Text(stringResource(R.string.lyrics_background_style)) },
+                            description =
+                                if (isLyricsBackgroundStyleAvailable) {
+                                    null
+                                } else {
+                                    stringResource(R.string.lyrics_background_style_own_player_desc)
+                                },
+                            icon = { Icon(painterResource(R.drawable.lyrics), null) },
+                            selectedValue = lyricsBackground,
+                            values = availableLyricsBackgroundStyles,
+                            onValueSelected = onLyricsBackgroundChange,
+                            isEnabled =
+                                playerBackground != PlayerBackgroundStyle.CUSTOM &&
+                                    isLyricsBackgroundStyleAvailable,
+                            valueText = {
+                                when (it) {
+                                    LyricsBackgroundStyle.DEFAULT -> stringResource(R.string.lyrics_background_default)
+                                    LyricsBackgroundStyle.FOLLOW_THEME -> stringResource(R.string.follow_theme)
+                                    LyricsBackgroundStyle.COLORING -> stringResource(R.string.coloring)
+                                    LyricsBackgroundStyle.MOVING_BLUR -> stringResource(R.string.lyrics_background_moving_blur)
+                                    LyricsBackgroundStyle.CUSTOM -> stringResource(R.string.custom)
+                                }
+                            },
+                        )
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S &&
+                            lyricsBackground == LyricsBackgroundStyle.MOVING_BLUR
+                        ) {
+                            Text(
+                                text = stringResource(R.string.moving_blur_static_disclaimer),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 56.dp, top = 4.dp, end = 16.dp),
+                            )
+                        }
+                    }
+                }
+
+                item(visible = playerBackground == PlayerBackgroundStyle.CUSTOM) {
+                    PreferenceEntry(
+                        modifier = positions.modifierFor("customized_background"),
+                        title = { Text(stringResource(R.string.customized_background)) },
+                        icon = { Icon(painterResource(R.drawable.image), null) },
+                        onClick = { navController.navigate("customize_background") },
+                    )
+                }
+
+                item {
+                    Column(modifier = positions.modifierFor("mini_player_background_style")) {
+                        EnumListPreference(
+                            title = { Text(stringResource(R.string.mini_player_background_style)) },
+                            icon = { Icon(painterResource(R.drawable.gradient), null) },
+                            selectedValue = miniPlayerBackground,
+                            onValueSelected = { newStyle ->
+                                val canUseLiquidGlass =
+                                    liquidGlassEnabled &&
+                                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                                val effective =
+                                    if (newStyle == MiniPlayerBackgroundStyle.LIQUID_GLASS &&
+                                        !canUseLiquidGlass
+                                    ) {
+                                        MiniPlayerBackgroundStyle.THEME
+                                    } else {
+                                        newStyle
+                                    }
+                                onMiniPlayerBackgroundChange(effective)
+                            },
+                            valueText = {
+                                when (it) {
+                                    MiniPlayerBackgroundStyle.THEME -> stringResource(R.string.follow_theme)
+                                    MiniPlayerBackgroundStyle.GRADIENT -> stringResource(R.string.gradient)
+                                    MiniPlayerBackgroundStyle.GLOW -> stringResource(R.string.glow)
+                                    MiniPlayerBackgroundStyle.FROSTED -> stringResource(R.string.frosted_blur)
+                                    MiniPlayerBackgroundStyle.LIQUID_GLASS -> stringResource(R.string.liquid_glass)
+                                }
+                            },
+                        )
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S &&
+                            miniPlayerBackground == MiniPlayerBackgroundStyle.FROSTED
+                        ) {
+                            Text(
+                                text = stringResource(R.string.frosted_mini_player_unsupported),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 56.dp, top = 4.dp, end = 16.dp),
+                            )
+                        }
+                        if (miniPlayerBackground == MiniPlayerBackgroundStyle.LIQUID_GLASS &&
+                            (!liquidGlassEnabled || Build.VERSION.SDK_INT < Build.VERSION_CODES.S)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.liquid_glass_mini_player_unsupported),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 56.dp, top = 4.dp, end = 16.dp),
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    SwitchPreference(
+                        modifier = positions.modifierFor("hide_player_thumbnail"),
+                        title = { Text(stringResource(R.string.hide_player_thumbnail)) },
+                        description = stringResource(R.string.hide_player_thumbnail_desc),
+                        icon = { Icon(painterResource(R.drawable.hide_image), null) },
+                        checked = hidePlayerThumbnail,
+                        onCheckedChange = onHidePlayerThumbnailChange,
+                    )
+                }
+
+                item {
+                    ThumbnailCornerRadiusSelectorButton(
+                        onRadiusSelected = {},
+                    )
+                }
+
+                item {
+                    SwitchPreference(
+                        modifier = positions.modifierFor("crop_thumbnail_to_square"),
+                        title = { Text(stringResource(R.string.crop_thumbnail_to_square)) },
+                        description = stringResource(R.string.crop_thumbnail_to_square_desc),
+                        icon = { Icon(painterResource(R.drawable.image), null) },
+                        checked = cropThumbnailToSquare,
+                        onCheckedChange = onCropThumbnailToSquareChange,
+                    )
+                }
+
+                item {
+                    PreferenceEntry(
+                        title = { Text(stringResource(R.string.aod_customize_title)) },
+                        description = stringResource(R.string.aod_customize_entry_desc),
+                        icon = { Icon(painterResource(R.drawable.bedtime), null) },
+                        onClick = { navController.navigate("settings/appearance/aod_customized") },
+                    )
+                }
+
+                item {
+                    Column(modifier = positions.modifierFor("player_buttons_style")) {
+                        EnumListPreference(
+                            title = { Text(stringResource(R.string.player_buttons_style)) },
+                            description =
+                                if (isPlayerStyleCustomizationEnabled) {
+                                    null
+                                } else {
+                                    stringResource(R.string.player_background_style_v8_v9_desc)
+                                },
+                            icon = { Icon(painterResource(R.drawable.palette), null) },
+                            selectedValue = playerButtonsStyle,
+                            onValueSelected = onPlayerButtonsStyleChange,
+                            isEnabled = isPlayerStyleCustomizationEnabled,
+                            valueText = {
+                                when (it) {
+                                    PlayerButtonsStyle.DEFAULT -> stringResource(R.string.default_style)
+                                    PlayerButtonsStyle.SECONDARY -> stringResource(R.string.secondary_color_style)
+                                }
+                            },
+                        )
+                    }
+                }
+
+                item {
+                    Column(modifier = positions.modifierFor("player_slider_style")) {
+                        PreferenceEntry(
+                            title = { Text(stringResource(R.string.player_slider_style)) },
+                            description = sliderStyleLabel(sliderStyle),
+                            icon = { Icon(painterResource(R.drawable.sliders), null) },
+                            onClick = {
+                                showSliderOptionDialog = true
+                            },
+                            isEnabled = isPlayerStyleCustomizationEnabled,
+                        )
+                    }
+                }
+            }
+
+            PreferenceGroup(
+                modifier = positions.modifierFor("home_screen"),
+                title = stringResource(R.string.home),
+            ) {
+                item {
+                    SwitchPreference(
+                        modifier = positions.modifierFor("minimal_home_mode"),
+                        title = { Text(stringResource(R.string.minimal_home_mode)) },
+                        description = stringResource(R.string.minimal_home_mode_desc),
+                        icon = { Icon(painterResource(R.drawable.home_outlined), null) },
+                        checked = minimalHomeMode,
+                        onCheckedChange = onMinimalHomeModeChange,
+                    )
+                }
+
+                item {
+                    Column(modifier = positions.modifierFor("default_open_tab")) {
+                        EnumListPreference(
+                            title = { Text(stringResource(R.string.default_open_tab)) },
+                            icon = { Icon(painterResource(R.drawable.nav_bar), null) },
+                            selectedValue = defaultOpenTab,
+                            onValueSelected = onDefaultOpenTabChange,
+                            valueText = {
+                                when (it) {
+                                    NavigationTab.HOME -> stringResource(R.string.home)
+                                    NavigationTab.SEARCH -> stringResource(R.string.search)
+                                    NavigationTab.LIBRARY -> stringResource(R.string.filter_library)
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+
+            PreferenceGroup(
+                modifier = positions.modifierFor("app_language"),
+                title = stringResource(R.string.misc),
+            ) {
+                item {
+                    SwitchPreference(
+                        modifier = positions.modifierFor("tablet_mode"),
+                        title = { Text(stringResource(R.string.tablet_mode)) },
+                        description = stringResource(R.string.tablet_mode_desc),
+                        icon = { Icon(painterResource(R.drawable.desktop_windows), null) },
+                        checked = tabletModeEnabled,
+                        onCheckedChange = onTabletModeEnabledChange,
+                    )
+                }
+
+                item {
+                    PreferenceEntry(
+                        modifier = positions.modifierFor("navigation_bar_settings", "navigation_bar_style"),
+                        title = { Text(stringResource(R.string.navigation_bar_settings_title)) },
+                        description = stringResource(R.string.navigation_bar_settings_subtitle),
+                        icon = { Icon(painterResource(R.drawable.nav_bar), null) },
+                        onClick = { navController.navigate("settings/appearance/navigation_bar") },
+                    )
+                }
+
+                item {
+                    SwitchPreference(
+                        modifier = positions.modifierFor("hide_scrollbar"),
+                        title = { Text(stringResource(R.string.hide_scrollbar)) },
+                        description = stringResource(R.string.hide_scrollbar_desc),
+                        icon = { Icon(painterResource(R.drawable.filter_alt), null) },
+                        checked = hideScrollbar,
+                        onCheckedChange = onHideScrollbarChange,
+                    )
+                }
+
+            }
+
+            PreferenceGroup(
+                modifier = positions.modifierFor("extras"),
+                title = stringResource(R.string.extras),
+            ) {
+                item {
+                    PreferenceEntry(
+                        title = { Text(stringResource(R.string.extras)) },
+                        description = stringResource(R.string.settings_extras_subtitle),
+                        icon = { Icon(painterResource(R.drawable.discover_tune), null) },
+                        onClick = { navController.navigate("settings/appearance/extras") },
+                    )
+                }
+            }
+        }
+
+        ScreenHeaderHaze(
+            hazeState = headerHaze,
+            systemBarsTopPadding = systemBarsTopPadding,
+        )
+        }
+}
+}
+
+@Composable
+fun ApplyRefreshRate(
+    isEnabled: Boolean,
+    targetFps: Float,
+) {
+    val context = LocalContext.current
+    val view = LocalView.current
+    val activity = remember(context) { context.findActivity() }
+    val requestedFps = if (isEnabled) targetFps else DEFAULT_REFRESH_RATE_REQUEST
+
+    DisposableEffect(view, activity, requestedFps) {
+        applyRefreshRate(
+            view = view,
+            activity = activity,
+            requestedFps = requestedFps,
+        )
+
+        onDispose {
+            applyRefreshRate(
+                view = view,
+                activity = activity,
+                requestedFps = DEFAULT_REFRESH_RATE_REQUEST,
+            )
+        }
+    }
+}
+
+@Composable
+private fun rememberSupportedHighestFps(): Float {
+    val view = LocalView.current
+
+    return remember(view) {
+        val display = view.display
+        display
+            ?.supportedModes
+            ?.maxOfOrNull { mode -> mode.refreshRate }
+            ?: display?.refreshRate
+            ?: DEFAULT_STANDARD_REFRESH_RATE_FPS
+    }
+}
+
+private fun applyRefreshRate(
+    view: View,
+    activity: Activity?,
+    requestedFps: Float,
+) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+        view.setRequestedFrameRate(requestedFps)
+        return
+    }
+
+    activity?.window?.let { window ->
+        val attributes = window.attributes
+        if (attributes.preferredRefreshRate != requestedFps) {
+            attributes.preferredRefreshRate = requestedFps
+            window.attributes = attributes
+        }
+    }
+}
+
+private tailrec fun Context.findActivity(): Activity? =
+    when (this) {
+        is Activity -> this
+        is ContextWrapper -> baseContext.findActivity()
+        else -> null
+    }
+
+private const val HIGH_REFRESH_RATE_THRESHOLD_FPS = 60.5f
+private const val DEFAULT_STANDARD_REFRESH_RATE_FPS = 60f
+private const val DEFAULT_REFRESH_RATE_REQUEST = 0f
+
+@Composable
+private fun SliderStyleOptionCard(
+    sliderStyle: SliderStyle,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var sliderValue by remember {
+        mutableFloatStateOf(0.5f)
+    }
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier =
+            modifier
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(16.dp))
+                .border(
+                    1.dp,
+                    if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                    RoundedCornerShape(16.dp),
+                ).clickable(onClick = onClick)
+                .padding(16.dp),
+    ) {
+        StyledPlaybackSlider(
+            sliderStyle = sliderStyle,
+            value = sliderValue,
+            valueRange = 0f..1f,
+            onValueChange = { sliderValue = it },
+            onValueChangeFinished = {},
+            activeColor = MaterialTheme.colorScheme.primary,
+            isPlaying = true,
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+        )
+
+        Text(
+            text = sliderStyleLabel(sliderStyle),
+            style = MaterialTheme.typography.labelLarge,
+        )
+    }
+}
+
+@Composable
+private fun sliderStyleLabel(sliderStyle: SliderStyle): String =
+    when (sliderStyle) {
+        SliderStyle.Standard -> stringResource(R.string.slider_style_standard)
+        SliderStyle.Wavy -> stringResource(R.string.slider_style_wavy)
+        SliderStyle.Thick -> stringResource(R.string.slider_style_thick)
+        SliderStyle.Circular -> stringResource(R.string.slider_style_circular)
+        SliderStyle.Simple -> stringResource(R.string.slider_style_simple)
+    }
+
+enum class DarkMode {
+    ON,
+    OFF,
+    AUTO,
+}
+
+enum class NavigationTab {
+    HOME,
+    SEARCH,
+    LIBRARY,
+}
+
+enum class PlayerTextAlignment {
+    SIDED,
+    CENTER,
+}
+
+enum class LyricsPosition {
+    LEFT,
+    CENTER,
+    RIGHT,
+}

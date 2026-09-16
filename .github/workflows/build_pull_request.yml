@@ -1,0 +1,79 @@
+name: Build Pull Request
+
+on:
+  pull_request:
+    branches:
+      - "**"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: 21
+          distribution: "temurin"
+
+      - name: Set Up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: true
+          cache-cleanup: on-success
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Generate debug.keystore if not exists
+        run: |
+          mkdir -p ~/.android
+          if [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkey -v \
+              -keystore ~/.android/debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: Build, Test and Lint Mobile Universal Debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --console=plain assembleGmsMobileUniversalDebug :app:testGmsMobileUniversalDebugUnitTest :app:lintGmsMobileUniversalDebug --warning-mode summary 2>&1 | python3 -c "import re,sys;p=re.compile(r'^(WARNING: )?\[CXX5202\] This app only has 32-bit \[(armeabi-v7a|x86)\] native libraries\. Beginning August 1, 2019 Google Play store requires that all apps that include native libraries must provide 64-bit versions\. For more information, visit https://g\.co/64-bit-requirement\$');[sys.stdout.write(l) for l in sys.stdin if not p.match(l.rstrip())]"
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          PULL_REQUEST: "true"
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+          API_BEARER_TOKEN: ${{ secrets.API_BEARER_TOKEN }}
+          CANVAS_BEARER_TOKEN: ${{ secrets.CANVAS_BEARER_TOKEN }}
+          EXTRACTOR_BEARER: ${{ secrets.EXTRACTOR_BEARER }}
+          # Public ArchivePool base URL. The pool's /api/sources and /api/discovery/*
+          # endpoints reject unauthenticated reads with HTTP 401, so without these
+          # three values baked into BuildConfig the app silently gets 0 accounts
+          # and 0 discovered instances and falls back to YouTube for every track.
+          # Precedence: Actions variable (preferred — non-sensitive), then secret
+          # (kept for forks that stored the URL as a secret before vars existed),
+          # then the gradle default (https://archivepool.vercel.app) in build.gradle.kts.
+          SOURCE_PROVIDER_URL: ${{ vars.SOURCE_PROVIDER_URL || secrets.SOURCE_PROVIDER_URL }}
+          SOURCE_PROVIDER_KEY: ${{ secrets.SOURCE_PROVIDER_KEY }}
+          # POOL_CLIENT_KEY not needed: v2 feed protocol derives encryption from the read key.
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-mobile-universal-debug-pr-${{ github.event.number }}
+          path: |
+            app/build/outputs/apk/gms/mobile/universal/debug/*.apk
+            app/build/outputs/apk/gmsMobileUniversal/debug/*.apk
+            app/build/outputs/apk/mobile/universal/debug/*.apk
+            app/build/outputs/apk/mobileUniversal/debug/*.apk

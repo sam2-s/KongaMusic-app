@@ -1,0 +1,30 @@
+/*
+ * kongamusic (2026)
+ * © Samk
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
+
+package moe.kongamusic.voicesearch
+
+import android.content.Context
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+class DefaultVoiceSearchController : VoiceSearchController {
+    private val _state = MutableStateFlow<VoiceSearchState>(VoiceSearchState.Idle)
+    override val state: StateFlow<VoiceSearchState> = _state.asStateFlow()
+
+    override fun startListening(context: Context) {
+        _state.value =
+            VoiceSearchState.Error(
+                "Voice search requires the GMS build of ArchiveTune. Use the system " +
+                    "voice assistant (e.g. \"OK Google, play X on ArchiveTune\") instead.",
+            )
+    }
+
+    override fun cancel() {
+        _state.value = VoiceSearchState.Idle
+    }
+}

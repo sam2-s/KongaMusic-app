@@ -1,0 +1,394 @@
+/*
+ * kongamusic (2026)
+ * © Samk
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
+
+@file:OptIn(androidx.media3.common.util.UnstableApi::class)
+
+package moe.kongamusic.ui.player
+
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.compose.ContentFrame
+import androidx.media3.ui.compose.SURFACE_TYPE_TEXTURE_VIEW
+import dagger.hilt.android.EntryPointAccessors
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import moe.kongamusic.di.CanvasCacheEntryPoint
+import moe.kongamusic.innertube.YouTube
+import moe.kongamusic.utils.StreamClientUtils
+import okhttp3.OkHttpClient
+import timber.log.Timber
+import java.util.Locale
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+
+private const val CanvasPlaybackStallCheckIntervalMs = 1_000L
+private const val CanvasPlaybackStallTimeoutMs = 5_000L
+
+val LocalPlayerSheetVisible = staticCompositionLocalOf { true }
+
+@Composable
+fun CanvasArtworkPlayer(
+    primaryUrl: String?,
+    fallbackUrl: String?,
+    isPlaying: Boolean,
+    modifier: Modifier = Modifier,
+    resizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_FIT,
+
+    visible: Boolean = true,
+
+    maxVideoEdgePx: Int? = null,
+
+    onPlaybackAvailabilityChange: ((available: Boolean) -> Unit)? = null,
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val primary = primaryUrl?.trim()?.takeIf { it.isNotBlank() }
+    val fallback =
+        fallbackUrl
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.takeUnless { it == primary }
+    val initial = primary ?: fallback ?: return
+    var currentUrl by remember(initial) { mutableStateOf(initial) }
+    var isVideoReady by remember(initial) { mutableStateOf(false) }
+    var hasPlaybackFailed by remember(initial) { mutableStateOf(false) }
+
+    val sheetVisible = LocalPlayerSheetVisible.current
+    val playbackActive = isPlaying && sheetVisible
+    val contentVisible = visible && sheetVisible
+    val shouldPlay by rememberUpdatedState(playbackActive)
+    val reportAvailability by rememberUpdatedState(onPlaybackAvailabilityChange)
+
+    val okHttpClient =
+        remember {
+            OkHttpClient
+                .Builder()
+                .proxy(YouTube.streamOkHttpProxy)
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    val host = request.url.host
+                    val isYouTubeMediaHost =
+                        host.endsWith("googlevideo.com") ||
+                            host.endsWith("googleusercontent.com") ||
+                            host.endsWith("youtube.com") ||
+                            host.endsWith("youtube-nocookie.com") ||
+                            host.endsWith("ytimg.com")
+
+                    if (!isYouTubeMediaHost) {
+                        return@addInterceptor chain.proceed(
+                            request
+                                .newBuilder()
+                                .header("User-Agent", CanvasPlaybackUserAgent)
+                                .build(),
+                        )
+                    }
+
+                    val requestProfile = StreamClientUtils.resolveRequestProfile(request.url)
+                    chain.proceed(
+                        StreamClientUtils
+                            .applyRequestProfile(
+                                request.newBuilder(),
+                                requestProfile,
+                            ).build(),
+                    )
+                }.build()
+        }
+
+    val playerCache =
+        remember {
+            val entryPoint =
+                EntryPointAccessors.fromApplication(
+                    context,
+                    CanvasCacheEntryPoint::class.java,
+                )
+            entryPoint.playerCache()
+        }
+    val mediaSourceFactory =
+        remember(okHttpClient, playerCache) {
+            val upstreamFactory =
+                DefaultDataSource.Factory(
+                    context,
+                    OkHttpDataSource.Factory(okHttpClient),
+                )
+            val cacheFactory =
+                CacheDataSource.Factory()
+                    .setCache(playerCache)
+                    .setUpstreamDataSourceFactory(upstreamFactory)
+                    .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+            DefaultMediaSourceFactory(cacheFactory)
+        }
+    val renderersFactory =
+        remember(context) {
+            DefaultRenderersFactory(context).setEnableDecoderFallback(true)
+        }
+    val exoPlayer =
+        remember(mediaSourceFactory, renderersFactory, maxVideoEdgePx) {
+            val trackSelector =
+                DefaultTrackSelector(context).apply {
+                    setParameters(
+                        buildUponParameters()
+                            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
+                            .setForceHighestSupportedBitrate(true)
+                            .let { parameters ->
+                                if (maxVideoEdgePx != null) {
+                                    parameters.setMaxVideoSize(maxVideoEdgePx, maxVideoEdgePx)
+                                } else {
+                                    parameters
+                                }
+                            }
+                            .build(),
+                    )
+                }
+            val loadControl =
+                DefaultLoadControl
+                    .Builder()
+                    .setBufferDurationsMs(
+                        15_000,
+                        30_000,
+                        500,
+                        1_000,
+                    ).setPrioritizeTimeOverSizeThresholds(true)
+                    .build()
+            ExoPlayer
+                .Builder(context)
+                .setMediaSourceFactory(mediaSourceFactory)
+                .setRenderersFactory(renderersFactory)
+                .setTrackSelector(trackSelector)
+                .setLoadControl(loadControl)
+                .build()
+                .apply {
+                    volume = 0f
+                    repeatMode = Player.REPEAT_MODE_ONE
+                    playWhenReady = shouldPlay
+                }
+        }
+
+    LaunchedEffect(playbackActive) {
+        if (hasPlaybackFailed) {
+            exoPlayer.pause()
+        } else {
+            exoPlayer.setCanvasPlayback(playbackActive)
+        }
+    }
+
+    LaunchedEffect(contentVisible) {
+        if (contentVisible) {
+            isVideoReady = false
+        }
+    }
+
+    LaunchedEffect(currentUrl, playbackActive, primary, fallback, exoPlayer) {
+        if (!playbackActive || fallback.isNullOrBlank() || currentUrl != primary) return@LaunchedEffect
+
+        var lastPosition = exoPlayer.currentPosition
+        var stalledForMs = 0L
+
+        while (isActive && playbackActive && currentUrl == primary) {
+            delay(CanvasPlaybackStallCheckIntervalMs)
+
+            val currentPosition = exoPlayer.currentPosition
+            val playbackState = exoPlayer.playbackState
+            val positionAdvanced = currentPosition != lastPosition
+            val isActivelyRendering =
+                playbackState == Player.STATE_READY &&
+                    exoPlayer.isPlaying &&
+                    positionAdvanced
+
+            stalledForMs =
+                if (isActivelyRendering) {
+                    0L
+                } else {
+                    stalledForMs + CanvasPlaybackStallCheckIntervalMs
+                }
+
+            if (stalledForMs >= CanvasPlaybackStallTimeoutMs) {
+                currentUrl = fallback
+                isVideoReady = false
+                reportAvailability?.invoke(false)
+                return@LaunchedEffect
+            }
+
+            lastPosition = currentPosition
+        }
+    }
+
+    DisposableEffect(exoPlayer, lifecycleOwner) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (
+                    (event == Lifecycle.Event.ON_START || event == Lifecycle.Event.ON_RESUME) &&
+                    !hasPlaybackFailed &&
+                    exoPlayer.playerError == null
+                ) {
+                    exoPlayer.setCanvasPlayback(shouldPlay)
+                }
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    DisposableEffect(exoPlayer, primary, fallback) {
+        val listener =
+            object : Player.Listener {
+                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                    Timber.tag(CanvasPlaybackLogTag).w(error, "Canvas playback failed")
+                    hasPlaybackFailed = true
+                    isVideoReady = false
+                    val next =
+                        when (currentUrl) {
+                            primary -> fallback?.takeIf { it != currentUrl }
+                            else -> null
+                        }
+                    if (!next.isNullOrBlank()) {
+                        currentUrl = next
+                    } else {
+                        exoPlayer.stop()
+                        reportAvailability?.invoke(false)
+                    }
+                }
+
+                override fun onRenderedFirstFrame() {
+                    isVideoReady = true
+                    reportAvailability?.invoke(true)
+                    if (shouldPlay && !hasPlaybackFailed && exoPlayer.playerError == null) {
+                        exoPlayer.setCanvasPlayback(isPlaying = true)
+                    }
+                }
+
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (!shouldPlay || hasPlaybackFailed || exoPlayer.playerError != null) return
+                    exoPlayer.setCanvasPlayback(isPlaying = true)
+                }
+
+                override fun onPlayWhenReadyChanged(
+                    playWhenReady: Boolean,
+                    reason: Int,
+                ) {
+                    if (shouldPlay && !playWhenReady && !hasPlaybackFailed && exoPlayer.playerError == null) {
+                        exoPlayer.setCanvasPlayback(isPlaying = true)
+                    }
+                }
+
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    if (shouldPlay && !isPlaying && !hasPlaybackFailed && exoPlayer.playerError == null) {
+                        exoPlayer.setCanvasPlayback(isPlaying = true)
+                    }
+                }
+            }
+        exoPlayer.addListener(listener)
+        onDispose { exoPlayer.removeListener(listener) }
+    }
+
+    LaunchedEffect(currentUrl, exoPlayer) {
+        val normalized = currentUrl.trim()
+        isVideoReady = false
+        hasPlaybackFailed = false
+
+        reportAvailability?.invoke(false)
+        val lowercaseUrl = normalized.lowercase(Locale.ROOT)
+        val mimeType =
+            when {
+                lowercaseUrl.contains("m3u8") -> MimeTypes.APPLICATION_M3U8
+                lowercaseUrl.contains("mp4") -> MimeTypes.VIDEO_MP4
+                primary != null && currentUrl == primary -> MimeTypes.APPLICATION_M3U8
+                fallback != null && currentUrl == fallback -> MimeTypes.VIDEO_MP4
+                else -> MimeTypes.APPLICATION_M3U8
+            }
+
+        val mediaItem =
+            MediaItem
+                .Builder()
+                .setUri(normalized)
+                .setMimeType(mimeType)
+                .build()
+
+        exoPlayer.stop()
+        exoPlayer.setMediaItem(mediaItem)
+        exoPlayer.prepare()
+        exoPlayer.setCanvasPlayback(shouldPlay)
+    }
+
+    DisposableEffect(exoPlayer) {
+        onDispose {
+            exoPlayer.release()
+        }
+    }
+
+    val alpha by animateFloatAsState(
+        targetValue = if (isVideoReady) 1f else 0f,
+        animationSpec = tween(durationMillis = 300),
+        label = "canvasAlpha",
+    )
+
+    if (contentVisible) {
+        ContentFrame(
+            player = exoPlayer,
+            surfaceType = SURFACE_TYPE_TEXTURE_VIEW,
+            contentScale = resizeMode.toContentScale(),
+            keepContentOnReset = false,
+            shutter = {},
+            modifier = modifier.alpha(alpha),
+        )
+    }
+}
+
+private fun Int.toContentScale(): ContentScale =
+    when (this) {
+        AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> ContentScale.Crop
+
+        AspectRatioFrameLayout.RESIZE_MODE_FILL -> ContentScale.FillBounds
+
+        AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH,
+        AspectRatioFrameLayout.RESIZE_MODE_FIXED_HEIGHT,
+        AspectRatioFrameLayout.RESIZE_MODE_FIT,
+        -> ContentScale.Fit
+
+        else -> ContentScale.Fit
+    }
+
+private fun ExoPlayer.setCanvasPlayback(isPlaying: Boolean) {
+    if (isPlaying) {
+        if (playbackState == Player.STATE_ENDED) seekTo(0)
+        if (playbackState == Player.STATE_IDLE && mediaItemCount > 0) prepare()
+        play()
+    } else {
+        pause()
+    }
+}
+
+private const val CanvasPlaybackLogTag = "CanvasPlayback"
+private const val CanvasPlaybackUserAgent =
+    "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Mobile Safari/537.36"

@@ -1,0 +1,149 @@
+/*
+ * kongamusic (2026)
+ * © Samk
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
+
+package moe.kongamusic.ui.screens
+
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBarScrollBehavior
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.navigation.NavController
+import moe.kongamusic.LocalPlayerAwareWindowInsets
+import moe.kongamusic.LocalPlayerConnection
+import moe.kongamusic.constants.GridThumbnailHeight
+import moe.kongamusic.innertube.models.AlbumItem
+import moe.kongamusic.innertube.models.ArtistItem
+import moe.kongamusic.innertube.models.PlaylistItem
+import moe.kongamusic.ui.component.FrostedTopAppBar
+import moe.kongamusic.ui.component.LocalMenuState
+import moe.kongamusic.ui.component.YouTubeGridItem
+import moe.kongamusic.ui.component.shimmer.GridItemPlaceHolder
+import moe.kongamusic.ui.component.shimmer.ShimmerHost
+import moe.kongamusic.ui.menu.YouTubeAlbumMenu
+import moe.kongamusic.ui.menu.YouTubeArtistMenu
+import moe.kongamusic.ui.menu.YouTubePlaylistMenu
+import moe.kongamusic.ui.utils.backToMain
+import moe.kongamusic.viewmodels.BrowseViewModel
+import androidx.compose.runtime.getValue
+
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+@Composable
+fun BrowseScreen(
+    navController: NavController,
+    scrollBehavior: TopAppBarScrollBehavior,
+    browseId: String?,
+    viewModel: BrowseViewModel = hiltViewModel(),
+) {
+    val menuState = LocalMenuState.current
+    val playerConnection = LocalPlayerConnection.current ?: return
+    val isPlaying by playerConnection.isPlaying.collectAsStateWithLifecycle()
+    val mediaMetadata by playerConnection.mediaMetadata.collectAsStateWithLifecycle()
+
+    val title by viewModel.title.collectAsStateWithLifecycle()
+    val items by viewModel.items.collectAsStateWithLifecycle()
+
+    val coroutineScope = rememberCoroutineScope()
+
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = GridThumbnailHeight + 24.dp),
+        contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
+    ) {
+        items?.let { items ->
+            items(
+                items = items.distinctBy { it.id },
+                key = { it.id },
+            ) { item ->
+                YouTubeGridItem(
+                    item = item,
+                    isPlaying = isPlaying,
+                    fillMaxWidth = true,
+                    coroutineScope = coroutineScope,
+                    modifier =
+                        Modifier
+                            .combinedClickable(
+                                onClick = {
+                                    when (item) {
+                                        is AlbumItem -> {
+                                            navController.navigate("album/${item.id}")
+                                        }
+
+                                        is PlaylistItem -> {
+                                            navController.navigate("online_playlist/${item.id}")
+                                        }
+
+                                        is ArtistItem -> {
+                                            navController.navigate("artist/${item.id}")
+                                        }
+
+                                        else -> {
+
+                                        }
+                                    }
+                                },
+                                onLongClick = {
+                                    menuState.show {
+                                        when (item) {
+                                            is AlbumItem -> {
+                                                YouTubeAlbumMenu(
+                                                    albumItem = item,
+                                                    navController = navController,
+                                                    onDismiss = menuState::dismiss,
+                                                )
+                                            }
+
+                                            is PlaylistItem -> {
+                                                YouTubePlaylistMenu(
+                                                    playlist = item,
+                                                    coroutineScope = coroutineScope,
+                                                    onDismiss = menuState::dismiss,
+                                                )
+                                            }
+
+                                            is ArtistItem -> {
+                                                YouTubeArtistMenu(
+                                                    artist = item,
+                                                    onDismiss = menuState::dismiss,
+                                                )
+                                            }
+
+                                            else -> {
+
+                                            }
+                                        }
+                                    }
+                                },
+                            ),
+                )
+            }
+
+            if (items.isEmpty()) {
+                items(8) {
+                    ShimmerHost {
+                        GridItemPlaceHolder(fillMaxWidth = true)
+                    }
+                }
+            }
+        }
+    }
+
+    FrostedTopAppBar(
+        title = { Text(title ?: "") },
+        onBack = navController::navigateUp,
+        onBackLongClick = navController::backToMain,
+    )
+}

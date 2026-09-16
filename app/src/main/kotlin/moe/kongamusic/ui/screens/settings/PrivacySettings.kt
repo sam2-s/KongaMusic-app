@@ -1,0 +1,420 @@
+/*
+ * kongamusic (2026)
+ * © Samk
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
+
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
+
+package moe.kongamusic.ui.screens.settings
+
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import android.widget.Toast
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
+import moe.kongamusic.LocalDatabase
+import moe.kongamusic.LocalPlayerAwareWindowInsets
+import moe.kongamusic.R
+import moe.kongamusic.constants.DisableScreenshotKey
+import moe.kongamusic.constants.EnableHapticFeedbackKey
+import moe.kongamusic.constants.ForceHighRefreshRateKey
+import moe.kongamusic.constants.LowDataModeKey
+import moe.kongamusic.constants.PauseListenHistoryKey
+import moe.kongamusic.constants.PauseSearchHistoryKey
+import moe.kongamusic.ui.component.DefaultDialog
+import moe.kongamusic.ui.component.FrostedHeaderPill
+import moe.kongamusic.ui.component.IconButton
+import moe.kongamusic.playback.MusicHapticsSettings
+import moe.kongamusic.ui.component.PreferenceEntry
+import kotlin.math.roundToInt
+import moe.kongamusic.ui.component.PreferenceGroup
+import moe.kongamusic.ui.component.SwitchPreference
+import moe.kongamusic.ui.utils.backToMain
+import moe.kongamusic.utils.rememberPreference
+import androidx.compose.foundation.layout.asPaddingValues
+import moe.kongamusic.ui.screens.ScreenHeaderHaze
+import moe.kongamusic.ui.screens.rememberScreenHeaderHaze
+import moe.kongamusic.LocalStableSystemBarsTopPadding
+import dev.chrisbanes.haze.hazeSource
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PrivacySettings(
+    navController: NavController,
+    scrollTo: String? = null,
+) {
+    val database = LocalDatabase.current
+    val context = LocalContext.current
+    val isAndroid12OrLater = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+    val (pauseListenHistory, onPauseListenHistoryChange) =
+        rememberPreference(
+            key = PauseListenHistoryKey,
+            defaultValue = false,
+        )
+    val (pauseSearchHistory, onPauseSearchHistoryChange) =
+        rememberPreference(
+            key = PauseSearchHistoryKey,
+            defaultValue = false,
+        )
+    val (disableScreenshot, onDisableScreenshotChange) =
+        rememberPreference(
+            key = DisableScreenshotKey,
+            defaultValue = false,
+        )
+    val (enableHapticFeedback, onEnableHapticFeedbackChange) =
+        rememberPreference(
+            key = EnableHapticFeedbackKey,
+            defaultValue = true,
+        )
+
+    var musicHapticsEnabled by remember { mutableStateOf(MusicHapticsSettings.isEnabled(context)) }
+    var musicHapticsStrength by remember { mutableStateOf(MusicHapticsSettings.strengthPercent(context)) }
+    val (lowDataMode, onLowDataModeChange) =
+        rememberPreference(
+            key = LowDataModeKey,
+            defaultValue = true,
+        )
+    val (forceHighRefreshRate, onForceHighRefreshRateChange) =
+        rememberPreference(
+            key = ForceHighRefreshRateKey,
+            defaultValue = false,
+        )
+
+    var showClearListenHistoryDialog by remember {
+        mutableStateOf(false)
+    }
+
+    if (showClearListenHistoryDialog) {
+        DefaultDialog(
+            onDismiss = { showClearListenHistoryDialog = false },
+            content = {
+                Text(
+                    text = stringResource(R.string.clear_listen_history_confirm),
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(horizontal = 18.dp),
+                )
+            },
+            buttons = {
+                TextButton(
+                    onClick = { showClearListenHistoryDialog = false },
+                    shapes = ButtonDefaults.shapes(),
+                ) {
+                    Text(text = stringResource(android.R.string.cancel))
+                }
+
+                TextButton(
+                    onClick = {
+                        showClearListenHistoryDialog = false
+                        database.query {
+                            clearListenHistory()
+                        }
+                    },
+                    shapes = ButtonDefaults.shapes(),
+                ) {
+                    Text(text = stringResource(android.R.string.ok))
+                }
+            },
+        )
+    }
+
+    var showClearSearchHistoryDialog by remember {
+        mutableStateOf(false)
+    }
+
+    if (showClearSearchHistoryDialog) {
+        DefaultDialog(
+            onDismiss = { showClearSearchHistoryDialog = false },
+            content = {
+                Text(
+                    text = stringResource(R.string.clear_search_history_confirm),
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(horizontal = 18.dp),
+                )
+            },
+            buttons = {
+                TextButton(
+                    onClick = { showClearSearchHistoryDialog = false },
+                    shapes = ButtonDefaults.shapes(),
+                ) {
+                    Text(text = stringResource(android.R.string.cancel))
+                }
+
+                TextButton(
+                    onClick = {
+                        showClearSearchHistoryDialog = false
+                        database.query {
+                            clearSearchHistory()
+                        }
+                    },
+                    shapes = ButtonDefaults.shapes(),
+                ) {
+                    Text(text = stringResource(android.R.string.ok))
+                }
+            },
+        )
+    }
+
+    val headerHaze = rememberScreenHeaderHaze()
+    val systemBarsTopPadding = LocalStableSystemBarsTopPadding.current
+
+    Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        topBar = {
+            TopAppBar(
+                title = {},
+                navigationIcon = {
+                    FrostedHeaderPill(plain = true) {
+                        IconButton(
+                            onClick = navController::navigateUp,
+                            onLongClick = navController::backToMain,
+                        ) {
+                            Icon(
+                                painterResource(R.drawable.arrow_back),
+                                contentDescription = null,
+                            )
+                        }
+                        Text(
+                            text = stringResource(R.string.settings_behavior_title),
+                            color = MaterialTheme.colorScheme.onBackground,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            modifier = Modifier.padding(end = 4.dp),
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent,
+                ),
+            )
+        },
+    ) { innerPadding ->
+        Box(modifier = Modifier.fillMaxSize()) {
+
+        val playerAwareBottomPadding =
+            LocalPlayerAwareWindowInsets.current
+                .only(WindowInsetsSides.Bottom)
+                .asPaddingValues()
+                .calculateBottomPadding()
+        val topPadding = innerPadding.calculateTopPadding()
+        val scrollState = rememberScrollState()
+        val positions = rememberPreferencePositions()
+
+        LaunchedEffect(scrollTo) { positions.scrollToKey(scrollTo, scrollState) }
+
+        Column(
+            Modifier
+                .windowInsetsPadding(LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Horizontal))
+
+                .then(positions.containerModifier())
+                .verticalScroll(scrollState)
+                .hazeSource(headerHaze)
+                .padding(top = topPadding)
+                .padding(bottom = playerAwareBottomPadding + SettingsDimensions.ScreenBottomPadding),
+        ) {
+            PreferenceGroup(
+                modifier = positions.modifierFor("pause_listen_history"),
+                title = stringResource(R.string.listen_history),
+            ) {
+                item {
+                    SwitchPreference(
+                        title = { Text(stringResource(R.string.pause_listen_history)) },
+                        icon = { Icon(painterResource(R.drawable.history), null) },
+                        checked = pauseListenHistory,
+                        onCheckedChange = onPauseListenHistoryChange,
+                    )
+                }
+
+                item {
+                    PreferenceEntry(
+                        modifier = positions.modifierFor("clear_listen_history"),
+                        title = { Text(stringResource(R.string.clear_listen_history)) },
+                        icon = { Icon(painterResource(R.drawable.delete_history), null) },
+                        onClick = { showClearListenHistoryDialog = true },
+                    )
+                }
+            }
+
+            PreferenceGroup(
+                modifier = positions.modifierFor("pause_search_history"),
+                title = stringResource(R.string.search_history),
+            ) {
+                item {
+                    SwitchPreference(
+                        title = { Text(stringResource(R.string.pause_search_history)) },
+                        icon = { Icon(painterResource(R.drawable.search_off), null) },
+                        checked = pauseSearchHistory,
+                        onCheckedChange = onPauseSearchHistoryChange,
+                    )
+                }
+
+                item {
+                    PreferenceEntry(
+                        modifier = positions.modifierFor("clear_search_history"),
+                        title = { Text(stringResource(R.string.clear_search_history)) },
+                        icon = { Icon(painterResource(R.drawable.clear_all), null) },
+                        onClick = { showClearSearchHistoryDialog = true },
+                    )
+                }
+            }
+
+            PreferenceGroup(
+                modifier = positions.modifierFor("haptics"),
+                title = stringResource(R.string.misc),
+            ) {
+                item {
+                    SwitchPreference(
+                        modifier = positions.modifierFor("low_data_mode"),
+                        title = { Text(stringResource(R.string.low_data_mode_title)) },
+                        description = stringResource(R.string.low_data_mode_description),
+                        icon = { Icon(painterResource(R.drawable.android_cell), null) },
+                        checked = lowDataMode,
+                        onCheckedChange = onLowDataModeChange,
+                    )
+                }
+
+                item {
+                    SwitchPreference(
+                        modifier = positions.modifierFor("force_high_refresh_rate"),
+                        title = { Text(stringResource(R.string.force_high_refresh_rate)) },
+                        icon = { Icon(painterResource(R.drawable.speed), null) },
+                        checked = forceHighRefreshRate,
+                        onCheckedChange = onForceHighRefreshRateChange,
+                    )
+                }
+
+                item {
+                    SwitchPreference(
+                        title = { Text(stringResource(R.string.haptics)) },
+                        description = stringResource(R.string.haptics_desc),
+                        icon = { Icon(painterResource(R.drawable.vibration), null) },
+                        checked = enableHapticFeedback,
+                        onCheckedChange = onEnableHapticFeedbackChange,
+                    )
+                }
+
+                item {
+                    SwitchPreference(
+                        title = { Text(stringResource(R.string.music_haptics)) },
+                        description = stringResource(R.string.music_haptics_desc),
+                        icon = { Icon(painterResource(R.drawable.vibration), null) },
+                        checked = musicHapticsEnabled,
+                        onCheckedChange = { next ->
+                            MusicHapticsSettings.setEnabled(context, next)
+                            musicHapticsEnabled = next
+                        },
+                    )
+                }
+
+                item {
+                    PreferenceEntry(
+                        title = { Text(stringResource(R.string.music_haptics_strength)) },
+                        description = stringResource(R.string.music_haptics_strength_value, musicHapticsStrength),
+                        icon = { Icon(painterResource(R.drawable.vibration), null) },
+                        isEnabled = musicHapticsEnabled,
+                        content = {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Slider(
+                                value = musicHapticsStrength.toFloat(),
+                                onValueChange = { musicHapticsStrength = it.roundToInt() },
+                                onValueChangeFinished = {
+                                    MusicHapticsSettings.setStrengthPercent(context, musicHapticsStrength)
+                                },
+                                valueRange = 0f..100f,
+                                steps = 19,
+                                enabled = musicHapticsEnabled,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        },
+                    )
+                }
+
+                item {
+                    SwitchPreference(
+                        modifier = positions.modifierFor("disable_screenshot"),
+                        title = { Text(stringResource(R.string.disable_screenshot)) },
+                        description = stringResource(R.string.disable_screenshot_desc),
+                        icon = { Icon(painterResource(R.drawable.screenshot), null) },
+                        checked = disableScreenshot,
+                        onCheckedChange = onDisableScreenshotChange,
+                    )
+                }
+
+                if (isAndroid12OrLater) {
+                    item {
+                        PreferenceEntry(
+                            modifier = positions.modifierFor("open_supported_links"),
+                            title = { Text(stringResource(R.string.open_supported_links)) },
+                            description = stringResource(R.string.default_links),
+                            icon = { Icon(painterResource(R.drawable.link), null) },
+                            onClick = {
+                                try {
+                                    val intent =
+                                        Intent(
+                                            Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS,
+                                            Uri.parse("package:${context.packageName}"),
+                                        ).apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    Toast
+                                        .makeText(
+                                            context,
+                                            R.string.open_app_settings_error,
+                                            Toast.LENGTH_LONG,
+                                        ).show()
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
+        ScreenHeaderHaze(
+            hazeState = headerHaze,
+            systemBarsTopPadding = systemBarsTopPadding,
+        )
+        }
+}
+}

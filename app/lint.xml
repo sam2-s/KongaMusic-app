@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+
+    <issue id="MissingTranslation" severity="ignore" />
+
+    <issue id="MissingQuantity" severity="error">
+        <ignore path="src/main/res/values-cs" />
+        <ignore path="src/main/res/values-lt" />
+        <ignore path="src/main/res/values-sk" />
+    </issue>
+</lint>

@@ -1,0 +1,95 @@
+/*
+ * kongamusic (2026)
+ * © Samk
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
+
+package moe.kongamusic.musixmatch
+
+import moe.kongamusic.musixmatch.models.RichSyncLine
+import java.util.Locale
+
+internal object MusixmatchTtml {
+    private const val XML_HEADER = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+
+    fun richSyncToTtml(lines: List<RichSyncLine>): String {
+        if (lines.isEmpty()) return ""
+
+        val builder = StringBuilder()
+        builder.append(XML_HEADER)
+        builder.append('\n')
+        builder.append("<tt xmlns=\"http://www.w3.org/ns/ttml\">\n")
+        builder.append("  <body>\n")
+        builder.append("    <div>\n")
+
+        for (line in lines) {
+            appendLine(builder, line)
+        }
+
+        builder.append("    </div>\n")
+        builder.append("  </body>\n")
+        builder.append("</tt>\n")
+        return builder.toString()
+    }
+
+    private fun appendLine(builder: StringBuilder, line: RichSyncLine) {
+        val lineStart = line.startTime
+        val lineEnd = line.endTime
+        if (lineEnd < lineStart) return
+
+        val filtered = line.words.filter { it.text.isNotEmpty() }
+        if (filtered.isEmpty()) {
+            val safeText = escapeXml(line.text.orEmpty().ifBlank { "" })
+            if (safeText.isBlank()) return
+            builder.append("      <p begin=\"")
+            builder.append(formatTime(lineStart))
+            builder.append("\" end=\"")
+            builder.append(formatTime(lineEnd))
+            builder.append("\">")
+            builder.append(safeText)
+            builder.append("</p>\n")
+            return
+        }
+
+        builder.append("      <p begin=\"")
+        builder.append(formatTime(lineStart))
+        builder.append("\" end=\"")
+        builder.append(formatTime(lineEnd))
+        builder.append("\">")
+        for (i in filtered.indices) {
+            val word = filtered[i]
+            val wordStart = lineStart + word.offset
+            val wordEnd: Double =
+                if (i < filtered.lastIndex) {
+                    lineStart + filtered[i + 1].offset
+                } else {
+                    lineEnd
+                }
+            val safeEnd = wordEnd.coerceAtLeast(wordStart)
+            builder.append("<span begin=\"")
+            builder.append(formatTime(wordStart))
+            builder.append("\" end=\"")
+            builder.append(formatTime(safeEnd))
+            builder.append("\">")
+
+            builder.append(escapeXml(word.text))
+            builder.append("</span>")
+            if (i < filtered.lastIndex) {
+                builder.append(' ')
+            }
+        }
+        builder.append("</p>\n")
+    }
+
+    private fun formatTime(seconds: Double): String =
+        String.format(Locale.US, "%.3fs", seconds.coerceAtLeast(0.0))
+
+    private fun escapeXml(value: String): String =
+        value
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&apos;")
+}

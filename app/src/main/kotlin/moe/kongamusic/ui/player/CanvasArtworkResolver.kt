@@ -1,0 +1,288 @@
+/*
+ * kongamusic (2026)
+ * © Samk
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
+
+package moe.kongamusic.ui.player
+
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
+import moe.kongamusic.canvas.AppleMusicProvider
+import moe.kongamusic.canvas.SpotifyCanvasProvider
+import moe.kongamusic.canvas.models.CanvasArtwork
+import moe.kongamusic.canvas.models.looselyMatchesSongIdentity
+import moe.kongamusic.canvas.models.matchesSongIdentity
+import moe.kongamusic.telegram.isTelegramMediaId
+import moe.kongamusic.utils.isLocalMediaId
+import timber.log.Timber
+
+internal suspend fun resolveCanvasArtworkForPlayback(
+    mediaId: String,
+    songTitleRaw: String,
+    artistNameRaw: String,
+    storefront: String,
+    requireVertical: Boolean,
+    allowNetwork: Boolean,
+    albumTitle: String? = null,
+    trySpotifyCanvas: Boolean = false,
+
+    spotifyTrackId: String? = null,
+): CanvasArtwork? {
+
+    val strictIdentity = !(mediaId.isTelegramMediaId() || mediaId.isLocalMediaId())
+
+    val cachedArtwork =
+        withContext(Dispatchers.IO) {
+            CanvasArtworkPlaybackCache.getCachedOnlyFast(mediaId)
+                ?: CanvasArtworkPlaybackCache.get(
+                    mediaId = mediaId,
+                    preferCachedOnly = true,
+                )
+        }
+    if (cachedArtwork != null) {
+        val isValid =
+            cachedArtwork.hasRequiredCanvasVariant(requireVertical) &&
+                cachedArtwork.matchesIdentity(songTitleRaw, artistNameRaw, strictIdentity)
+        if (isValid) return cachedArtwork
+        withContext(Dispatchers.IO) {
+            CanvasArtworkPlaybackCache.remove(mediaId)
+        }
+    }
+
+    if (!allowNetwork || mediaId.isBlank()) {
+        Timber.tag(CanvasArtworkLogTag).d("Skipping canvas network lookup for %s", mediaId)
+        return null
+    }
+
+    return withContext(Dispatchers.IO) {
+
+        if (trySpotifyCanvas && strictIdentity) {
+            val spotifyCanvas =
+                runCatching {
+                    SpotifyCanvasProvider.getByVideoId(
+                        videoId = mediaId,
+                        songTitle = songTitleRaw,
+                        artistName = artistNameRaw,
+
+                        spotifyTrackUri = spotifyTrackId?.takeIf { it.isNotBlank() }?.let { "spotify:track:$it" },
+                    )
+                }.onFailure { throwable ->
+                    Timber.tag(CanvasArtworkLogTag).w(throwable, "Spotify Canvas lookup failed for %s", mediaId)
+                }.getOrNull()
+            if (spotifyCanvas != null && spotifyCanvas.hasRequiredCanvasVariant(requireVertical)) {
+                Timber.tag(CanvasArtworkLogTag).d("Spotify Canvas resolved for %s", mediaId)
+                return@withContext CanvasArtworkPlaybackCache.put(mediaId, spotifyCanvas)
+            }
+        }
+
+        val fetched =
+            fetchCanvasArtworkForPlayback(
+                songTitleRaw = songTitleRaw,
+                artistNameRaw = artistNameRaw,
+                storefront = storefront,
+                requireVertical = requireVertical,
+                strictIdentity = strictIdentity,
+                albumTitle = albumTitle,
+            )
+
+        if (fetched == null) {
+            Timber.tag(CanvasArtworkLogTag).d("No playable canvas resolved for %s", mediaId)
+            return@withContext null
+        }
+
+        CanvasArtworkPlaybackCache.put(mediaId, fetched)
+    }
+}
+
+internal suspend fun fetchCanvasArtworkForPlayback(
+    songTitleRaw: String,
+    artistNameRaw: String,
+    storefront: String,
+    requireVertical: Boolean,
+    forceRefresh: Boolean = false,
+    strictIdentity: Boolean = true,
+    albumTitle: String? = null,
+): CanvasArtwork? {
+    val songTitle = normalizeCanvasSongTitle(songTitleRaw)
+    val artistName = normalizeCanvasArtistName(artistNameRaw)
+    val candidates =
+        linkedSetOf(
+            songTitle to artistName,
+            songTitleRaw to artistName,
+            songTitle to artistNameRaw,
+            songTitleRaw to artistNameRaw,
+        ).filter { (song, artist) ->
+            song.isNotBlank() && artist.isNotBlank()
+        }
+
+    return candidates.firstNotNullOfOrNull { (song, artist) ->
+        AppleMusicProvider
+            .getBySongArtist(
+                song = song,
+                artist = artist,
+                storefront = storefront,
+                forceRefresh = forceRefresh,
+                album = albumTitle,
+            )?.takeIf { artwork ->
+                artwork.matchesIdentity(songTitleRaw, artistNameRaw, strictIdentity) &&
+                    artwork.hasRequiredCanvasVariant(requireVertical)
+            }
+    }
+}
+
+internal suspend fun refetchCanvasArtworkForPlayback(
+    mediaId: String,
+    songTitleRaw: String,
+    artistNameRaw: String,
+    storefront: String,
+    requireVertical: Boolean,
+    albumTitle: String? = null,
+): CanvasArtwork? {
+    if (mediaId.isBlank()) return null
+
+    return withContext(Dispatchers.IO) {
+        val fetched =
+            fetchCanvasArtworkForPlayback(
+                songTitleRaw = songTitleRaw,
+                artistNameRaw = artistNameRaw,
+                storefront = storefront,
+                requireVertical = requireVertical,
+                forceRefresh = true,
+                strictIdentity = !(mediaId.isTelegramMediaId() || mediaId.isLocalMediaId()),
+                albumTitle = albumTitle,
+            ) ?: return@withContext null
+
+        CanvasArtworkPlaybackCache.replace(mediaId, fetched)
+    }
+}
+
+private fun CanvasArtwork.matchesIdentity(
+    songTitleRaw: String,
+    artistNameRaw: String,
+    strict: Boolean,
+): Boolean =
+    if (strict) {
+        matchesSongIdentity(songTitleRaw, artistNameRaw)
+    } else {
+
+        looselyMatchesSongIdentity(songTitleRaw, artistNameRaw) || !albumName.isNullOrBlank()
+    }
+
+private fun CanvasArtwork.hasRequiredCanvasVariant(requireVertical: Boolean): Boolean =
+    if (requireVertical) {
+        !preferredVerticalAnimationUrl.isNullOrBlank()
+    } else {
+        !preferredAnimationUrl.isNullOrBlank()
+    }
+
+private const val CanvasArtworkLogTag = "CanvasArtwork"
+
+data class CanvasSourceResult(
+    val sourceName: String,
+    val artwork: CanvasArtwork,
+)
+
+internal suspend fun fetchAllCanvasSourcesForSong(
+    mediaId: String,
+    songTitleRaw: String,
+    artistNameRaw: String,
+    storefront: String,
+    albumTitle: String? = null,
+): List<CanvasSourceResult> = coroutineScope {
+    val strictIdentity = !(mediaId.isTelegramMediaId() || mediaId.isLocalMediaId())
+    val songTitle = normalizeCanvasSongTitle(songTitleRaw)
+    val artistName = normalizeCanvasArtistName(artistNameRaw)
+
+    val spotifyDeferred = async {
+        if (strictIdentity && mediaId.isNotBlank()) {
+            runCatching {
+                SpotifyCanvasProvider.getByVideoId(
+                    videoId = mediaId,
+                    songTitle = songTitleRaw,
+                    artistName = artistNameRaw,
+                )
+            }.getOrNull()
+                ?.takeIf { it.hasRequiredCanvasVariant(requireVertical = false) }
+        } else {
+            null
+        }
+    }
+
+    val appleMusicDeferred = async {
+        val candidates =
+            linkedSetOf(
+                songTitle to artistName,
+                songTitleRaw to artistName,
+                songTitle to artistNameRaw,
+                songTitleRaw to artistNameRaw,
+            ).filter { (song, artist) ->
+                song.isNotBlank() && artist.isNotBlank()
+            }
+        candidates.firstNotNullOfOrNull { (song, artist) ->
+            AppleMusicProvider.getBySongArtist(
+                song = song,
+                artist = artist,
+                storefront = storefront,
+                forceRefresh = false,
+                album = albumTitle,
+            )?.takeIf { it.hasRequiredCanvasVariant(requireVertical = false) }
+        }
+    }
+
+    val results = mutableListOf<CanvasSourceResult>()
+    spotifyDeferred.await()?.let { results.add(CanvasSourceResult("Spotify Canvas", it)) }
+    appleMusicDeferred.await()?.let { results.add(CanvasSourceResult("Apple Music", it)) }
+    results
+}
+
+private fun normalizeCanvasSongTitle(raw: String): String {
+    val stripped =
+        raw
+
+            .replace(Regex("^\\s*\\d{1,3}\\s*[.\\-]\\s*"), "")
+            .replace(Regex("\\s*\\[[^]]*]"), "")
+            .replace(
+                Regex(
+                    "\\s*\\((?:feat\\.?|ft\\.?|featuring|with)\\b[^)]*\\)",
+                    RegexOption.IGNORE_CASE,
+                ),
+                "",
+            ).replace(
+                Regex(
+                    "\\s*\\((?:official\\s*)?(?:music\\s*)?(?:video|mv|lyrics?|audio|visualizer|live|remaster(?:ed)?|version|edit|mix|remix)[^)]*\\)",
+                    RegexOption.IGNORE_CASE,
+                ),
+                "",
+            ).replace(
+                Regex(
+                    "\\s*-\\s*(?:official\\s*)?(?:music\\s*)?(?:video|mv|lyrics?|audio|visualizer|live|remaster(?:ed)?|version|edit|mix|remix)\\b.*$",
+                    RegexOption.IGNORE_CASE,
+                ),
+                "",
+            ).replace(Regex("\\s+"), " ")
+            .trim()
+
+    return stripped
+        .trim('-')
+        .replace(Regex("\\s+"), " ")
+        .trim()
+}
+
+private fun normalizeCanvasArtistName(raw: String): String {
+    val first =
+        raw
+            .split(
+                Regex(
+                    "(?:\\s*,\\s*|\\s*&\\s*|\\s+x\\s+|\\bfeat\\.?\\b|\\bft\\.?\\b|\\bfeaturing\\b|\\bwith\\b)",
+                    RegexOption.IGNORE_CASE,
+                ),
+                limit = 2,
+            ).firstOrNull()
+            .orEmpty()
+
+    return first.replace(Regex("\\s+"), " ").trim()
+}

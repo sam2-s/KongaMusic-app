@@ -1,0 +1,148 @@
+/*
+ * kongamusic (2026)
+ * © Samk
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
+
+package moe.kongamusic.tidal
+
+import android.content.Context
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import moe.kongamusic.canvas.CanvasSourceDiagnosis
+import moe.kongamusic.constants.TidalAccessTokenKey
+import moe.kongamusic.constants.TidalAuthFlowKey
+import moe.kongamusic.constants.TidalRefreshTokenKey
+import moe.kongamusic.constants.TidalTokenExpiryKey
+import moe.kongamusic.utils.dataStore
+import kotlinx.coroutines.flow.first
+
+object TidalCanvasCheck {
+    suspend fun diagnose(
+        context: Context,
+        title: String,
+        artist: String?,
+    ): CanvasSourceDiagnosis = withContext(Dispatchers.IO) {
+        val accountDiagnosis = checkAccount(context)
+        val catalogDiagnosis = checkCatalog(title, artist)
+
+        merge(accountDiagnosis, catalogDiagnosis)
+    }
+
+    private sealed interface AccountDiagnosis {
+        data object Ok : AccountDiagnosis
+
+        data class Rejected(val detail: String) : AccountDiagnosis
+
+        data class Error(val detail: String) : AccountDiagnosis
+    }
+
+    private suspend fun checkAccount(context: Context): AccountDiagnosis? {
+        val accessToken = readString(context, TidalAccessTokenKey)
+        if (accessToken.isBlank()) return null
+
+        val expiry = readLong(context, TidalTokenExpiryKey)
+        val freshEnough = expiry - System.currentTimeMillis() > 60_000L
+        if (freshEnough) return AccountDiagnosis.Ok
+
+        val refreshToken = readString(context, TidalRefreshTokenKey)
+        if (refreshToken.isBlank()) {
+            return AccountDiagnosis.Rejected(
+                "Your Tidal login was captured without a refresh token — re-login to Tidal.",
+            )
+        }
+        val flow = readString(context, TidalAuthFlowKey).ifBlank { TidalAccountManager.FLOW_OAUTH }
+        return try {
+            val refreshed = TidalAccountManager.refreshAccessToken(refreshToken, flow)
+            if (refreshed != null) {
+                AccountDiagnosis.Ok
+            } else {
+                AccountDiagnosis.Rejected(
+                    "Tidal refused to refresh your token — re-login to Tidal.",
+                )
+            }
+        } catch (throwable: Throwable) {
+            if (throwable is CancellationException) throw throwable
+            AccountDiagnosis.Error("Token refresh error: ${throwable.message ?: throwable::class.simpleName}")
+        }
+    }
+
+    private suspend fun checkCatalog(
+        title: String,
+        artist: String?,
+    ): CanvasSourceDiagnosis {
+        val term = (artist?.trim()?.plus(' ') ?: "") + title
+        val query = term.trim().ifBlank { title }
+        return try {
+            val results = TidalAudioProvider.probeCatalogSearch(query)
+            if (results != null) {
+                val count = results.length()
+                if (count > 0) {
+                    CanvasSourceDiagnosis.Ok(
+                        canvasFound = true,
+                        detail = "Catalog answered $count match(es) for the probe track.",
+                    )
+                } else {
+                    CanvasSourceDiagnosis.Ok(
+                        canvasFound = false,
+                        detail = "Catalog answered — no Tidal match for the probe track.",
+                    )
+                }
+            } else {
+                val instances = TidalAudioProvider.configuredInstanceCount()
+                CanvasSourceDiagnosis.Unreachable(
+                    detail =
+                        if (instances > 0) {
+                            "Unreachable — all $instances configured instance(s) and the public Tidal API failed."
+                        } else {
+                            "Unreachable — the public Tidal catalog API failed (no private instances configured)."
+                        },
+                )
+            }
+        } catch (throwable: Throwable) {
+            if (throwable is CancellationException) throw throwable
+            CanvasSourceDiagnosis.Unreachable("Unreachable: ${throwable.message ?: throwable::class.simpleName}")
+        }
+    }
+
+    private fun merge(
+        account: AccountDiagnosis?,
+        catalog: CanvasSourceDiagnosis,
+    ): CanvasSourceDiagnosis =
+        when (account) {
+            null ->
+                when (catalog) {
+
+                    is CanvasSourceDiagnosis.Ok ->
+                        catalog.copy(
+                            detail = catalog.detail + " (no Tidal account signed in — add one in Tidal settings for account-quality sources)",
+                        )
+                    else -> catalog
+                }
+            is AccountDiagnosis.Ok ->
+                when (catalog) {
+                    is CanvasSourceDiagnosis.Ok ->
+                        catalog.copy(detail = "Account OK. " + catalog.detail)
+                    else -> catalog
+                }
+            is AccountDiagnosis.Rejected ->
+                CanvasSourceDiagnosis.Rejected(
+                    httpStatus = null,
+                    detail = account.detail,
+                )
+            is AccountDiagnosis.Error ->
+                CanvasSourceDiagnosis.Unreachable(detail = account.detail)
+        }
+
+    private suspend fun readString(
+        context: Context,
+        key: androidx.datastore.preferences.core.Preferences.Key<String>,
+    ): String = runCatching { context.dataStore.data.first()[key] ?: "" }.getOrDefault("")
+
+    private suspend fun readLong(
+        context: Context,
+        key: androidx.datastore.preferences.core.Preferences.Key<Long>,
+    ): Long = runCatching { context.dataStore.data.first()[key] ?: 0L }.getOrDefault(0L)
+}

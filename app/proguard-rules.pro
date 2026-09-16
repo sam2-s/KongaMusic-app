@@ -1,0 +1,189 @@
+# Move all classes that R8 is allowed to move into a single 'r8' package.
+# This shortens class name strings in the DEX constant pool and removes
+# per-package directory entries, reducing DEX size by ~1–3%. It does NOT
+# rename or move any class covered by a -keep rule (media3, tdlib, kuromoji,
+# jaudiotagger, newpipe.extractor, ktor, guava, Glance widgets, queue
+# persistence models, @Serializable companions). Reflection by system class
+# name (e.g. Class.forName("android.os.SystemProperties")) is unaffected.
+# Using a non-empty package name ('r8') avoids edge cases with the default
+# package that some class loaders trip over.
+-repackageclasses 'r8'
+
+## Kotlin Serialization
+# Keep `Companion` object fields of serializable classes.
+# This avoids serializer lookup through `getDeclaredClasses` as done for named companion objects.
+-if @kotlinx.serialization.Serializable class **
+-keepclasseswithmembers class <1> {
+    static <1>$Companion Companion;
+}
+
+# Keep `serializer()` on companion objects (both default and named) of serializable classes.
+-if @kotlinx.serialization.Serializable class ** {
+    static **$* *;
+}
+-keepclasseswithmembers class <2>$<3> {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+
+# Keep `INSTANCE.serializer()` of serializable objects.
+-if @kotlinx.serialization.Serializable class ** {
+    public static ** INSTANCE;
+}
+-keepclasseswithmembers class <1> {
+    public static <1> INSTANCE;
+    kotlinx.serialization.KSerializer serializer(...);
+}
+
+# @Serializable and @Polymorphic are used at runtime for polymorphic serialization.
+-keepattributes RuntimeVisibleAnnotations,AnnotationDefault
+
+## Markwon — optional GIF support (android-gif-drawable) not bundled
+-dontwarn pl.droidsonroids.gif.**
+
+-dontwarn javax.servlet.ServletContainerInitializer
+-dontwarn org.bouncycastle.jsse.BCSSLParameters
+-dontwarn org.bouncycastle.jsse.BCSSLSocket
+-dontwarn org.bouncycastle.jsse.provider.BouncyCastleJsseProvider
+-dontwarn org.conscrypt.Conscrypt$Version
+-dontwarn org.conscrypt.Conscrypt
+-dontwarn org.conscrypt.ConscryptHostnameVerifier
+-dontwarn org.openjsse.javax.net.ssl.SSLParameters
+-dontwarn org.openjsse.javax.net.ssl.SSLSocket
+-dontwarn org.openjsse.net.ssl.OpenJSSE
+-dontwarn org.slf4j.impl.StaticLoggerBinder
+
+## Rules for NewPipeExtractor
+-keep class org.schabi.newpipe.extractor.services.youtube.protos.** { *; }
+-keep class org.schabi.newpipe.extractor.timeago.patterns.** { *; }
+-keep class org.schabi.newpipe.extractor.** { *; }
+-keepclassmembers class org.schabi.newpipe.extractor.** { *; }
+-keep class org.mozilla.javascript.** { *; }
+-keep class org.mozilla.javascript.engine.** { *; }
+-keep class org.mozilla.classfile.ClassFileWriter
+-dontwarn org.mozilla.javascript.JavaToJSONConverters
+-dontwarn org.mozilla.javascript.tools.**
+# org.mozilla.javascript.ObjToIntMap was removed in Rhino 1.9.x.
+# MetrolistExtractor's org.schabi.newpipe.extractor.utils.jsextractor.TokenStream
+# still references it, but that jsextractor path is dead code at runtime — the
+# morideobfuscator's RhinoTransformExecutor performs all JS execution using the
+# modern Rhino API directly. Suppress the R8 "Missing class" error so the
+# release minify task doesn't fail.
+-dontwarn org.mozilla.javascript.ObjToIntMap
+-keep class javax.script.** { *; }
+-dontwarn javax.script.**
+-keep class jdk.dynalink.** { *; }
+-dontwarn jdk.dynalink.**
+
+## Essential for reflection/deserialization
+-keepattributes Signature
+-keepattributes *Annotation*
+-keepattributes EnclosingMethod
+-keepattributes InnerClasses
+
+## Logging (does not affect Timber)
+-assumenosideeffects class android.util.Log {
+    public static boolean isLoggable(java.lang.String, int);
+    public static int v(...);
+    public static int d(...);
+    ## Leave in release builds
+    #public static int i(...);
+    #public static int w(...);
+    #public static int e(...);
+}
+
+# Generated automatically by the Android Gradle plugin.
+-dontwarn java.beans.BeanDescriptor
+-dontwarn java.beans.BeanInfo
+-dontwarn java.beans.IntrospectionException
+-dontwarn java.beans.Introspector
+-dontwarn java.beans.PropertyDescriptor
+-dontwarn java.lang.management.**
+
+# Keep all classes within the kuromoji package
+-keep class com.atilika.kuromoji.** { *; }
+
+## Queue Persistence Rules
+# Keep queue-related classes to prevent serialization issues in release builds
+-keep class moe.rukamori.archivetune.models.PersistQueue { *; }
+-keep class moe.rukamori.archivetune.models.PersistPlayerState { *; }
+-keep class moe.rukamori.archivetune.models.QueueData { *; }
+-keep class moe.rukamori.archivetune.models.QueueType { *; }
+-keep class moe.rukamori.archivetune.playback.queues.** { *; }
+
+# Java serialization writes the CLASS NAME and the FIELD NAMES into the stream, so R8 renaming
+# either of them breaks reading a file written by an earlier build. That is what produced
+#   W/MusicService: Failed to read persistent file: persistent_queue.data
+#   java.io.InvalidClassException: r8.hg7; class invalid for deserialization
+# on every update: the saved queue named a class by its obfuscated name, and in the new build that
+# name belonged to something else. The queue was silently lost each time.
+#
+# SCOPED TO THIS APP'S OWN CLASSES, and it must stay that way. The first attempt at this used
+# `class *`, and java.lang.Throwable implements Serializable — so it matched every exception class
+# in the app and in every library it depends on. Keeping names and fields across that whole surface
+# changed R8's naming and merging decisions enough that it emitted a class the ART verifier
+# rejects outright:
+#   java.lang.VerifyError: Verifier rejected class r8.my3 ...
+#   'this' argument 'Uninitialized Reference: org.json.JSONException'
+#       not instance of 'Reference: java.lang.RuntimeException'
+# — two unrelated exception types horizontally merged into one class. The app died on launch.
+#
+# Only this app's models are ever written with Java serialization, so only they need the rule.
+-keepnames class moe.rukamori.archivetune.** implements java.io.Serializable
+-keepclassmembers class moe.rukamori.archivetune.** implements java.io.Serializable {
+    static final long serialVersionUID;
+    private static final java.io.ObjectStreamField[] serialPersistentFields;
+    !static !transient <fields>;
+    private void writeObject(java.io.ObjectOutputStream);
+    private void readObject(java.io.ObjectInputStream);
+    java.lang.Object writeReplace();
+    java.lang.Object readResolve();
+}
+
+## Media3 Protection Rules
+# Protect Guava from conflicts with system versions
+-keep class com.google.common.** { *; }
+-keep class com.google.common.util.concurrent.** { *; }
+-keep class com.google.common.collect.** { *; }
+-dontwarn com.google.common.**
+
+# Protect Media3 from obfuscation
+-keep class androidx.media3.** { *; }
+-keep interface androidx.media3.** { *; }
+-dontwarn androidx.media3.**
+
+## JAudioTagger - suppress missing AWT/ImageIO classes (not available on Android)
+-dontwarn java.awt.**
+-dontwarn javax.imageio.**
+-dontwarn javax.swing.**
+-keep class org.jaudiotagger.** { *; }
+
+## Jetpack Glance
+# Keep ActionCallback implementations and their no-arg constructors
+-keep class * implements androidx.glance.appwidget.action.ActionCallback {
+    public <init>();
+}
+-keep class * implements androidx.glance.action.ActionCallback {
+    public <init>();
+}
+# Keep GlanceAppWidget and its receiver
+-keep class * extends androidx.glance.appwidget.GlanceAppWidget { *; }
+-keep class * extends androidx.glance.appwidget.GlanceAppWidgetReceiver { *; }
+
+# internal Ktor HTTP Client
+-keep class io.ktor.** { *; }
+-dontwarn io.ktor.**
+
+# engine HTTP Android/OkHttp Ktor
+-dontwarn kotlinx.coroutines.**
+
+# TDLib (Telegram) — JNI bridges into these classes by reflection; must not be renamed/stripped
+-keep class org.drinkless.tdlib.** { *; }
+-dontwarn org.drinkless.tdlib.**
+
+# Vendored td-ktx core (3 classes driving the engine's coroutine bridge).
+# Cheap insurance against R8 renaming across the vendored boundary; the
+# generated td-ktx extension wrappers are NOT vendored, so this keep adds
+# near-zero DEX compared to the upstream AAR's blanket rule.
+-keep class kotlinx.telegram.core.** { *; }
+-dontwarn kotlinx.telegram.core.**
+

@@ -1,0 +1,95 @@
+/*
+ * kongamusic (2026)
+ * © Samk
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
+
+package moe.kongamusic.audiosource
+
+import moe.kongamusic.constants.AudioSourceType
+import moe.kongamusic.constants.DownloadSource
+import moe.kongamusic.constants.DownloadSourceConfig
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class SourceOrderTest {
+    @Test
+    fun blankOrderYieldsDefaults() {
+        assertEquals(AudioSourceConfig.DEFAULT_ORDER, AudioSourceConfig.parseOrder(null))
+        assertEquals(AudioSourceConfig.DEFAULT_ORDER, AudioSourceConfig.parseOrder(""))
+    }
+
+    @Test
+    fun legacyOrderGetsNewSourcesAboveYouTube() {
+        val merged = AudioSourceConfig.parseOrder("TIDAL,QOBUZ,YOUTUBE")
+
+        assertEquals(
+            listOf(
+                AudioSourceType.TIDAL,
+                AudioSourceType.QOBUZ,
+                AudioSourceType.QOBUZ_BACKUP,
+                AudioSourceType.DEEZER,
+                AudioSourceType.APPLE,
+                AudioSourceType.JIOSAAVN,
+                AudioSourceType.YOUTUBE,
+            ),
+            merged,
+        )
+    }
+
+    @Test
+    fun everySourceSurvivesTheYouTubeCut() {
+
+        val reachable = AudioSourceConfig.parseOrder("TIDAL,QOBUZ,YOUTUBE").takeWhile { it != AudioSourceType.YOUTUBE }
+
+        assertTrue(AudioSourceType.DEEZER in reachable)
+        assertTrue(AudioSourceType.QOBUZ_BACKUP in reachable)
+        assertTrue(AudioSourceType.JIOSAAVN in reachable)
+    }
+
+    @Test
+    fun userPlacementOfYouTubeIsPreserved() {
+        val merged = AudioSourceConfig.parseOrder("YOUTUBE,TIDAL,QOBUZ")
+
+        assertTrue(merged.indexOf(AudioSourceType.DEEZER) < merged.indexOf(AudioSourceType.YOUTUBE))
+        assertTrue(merged.indexOf(AudioSourceType.TIDAL) > merged.indexOf(AudioSourceType.YOUTUBE))
+        assertTrue(merged.indexOf(AudioSourceType.QOBUZ) > merged.indexOf(AudioSourceType.TIDAL))
+        assertEquals(AudioSourceConfig.DEFAULT_ORDER.size, merged.size)
+    }
+
+    @Test
+    fun completeOrderIsReturnedUnchanged() {
+        val stored = "JIOSAAVN,DEEZER,APPLE,QOBUZ_BACKUP,QOBUZ,TIDAL,YOUTUBE"
+        val merged = AudioSourceConfig.parseOrder(stored)
+
+        assertEquals(stored, merged.joinToString(",") { it.name })
+    }
+
+    @Test
+    fun unknownAndDuplicateEntriesAreIgnored() {
+        val merged = AudioSourceConfig.parseOrder("TIDAL,NOT_A_SOURCE,tidal, youtube ")
+
+        assertEquals(AudioSourceConfig.DEFAULT_ORDER.size, merged.size)
+        assertEquals(AudioSourceConfig.DEFAULT_ORDER.size, merged.distinct().size)
+        assertEquals(AudioSourceType.TIDAL, merged.first())
+        assertEquals(AudioSourceType.YOUTUBE, merged.last())
+    }
+
+    @Test
+    fun downloadOrderGetsNewSourcesAboveYouTubeMusic() {
+        val merged = DownloadSourceConfig.parseOrder("QOBUZ,TIDAL,YOUTUBE_MUSIC")
+
+        assertTrue(merged.indexOf(DownloadSource.DEEZER) < merged.indexOf(DownloadSource.YOUTUBE_MUSIC))
+        assertTrue(merged.indexOf(DownloadSource.QOBUZ_BACKUP) < merged.indexOf(DownloadSource.YOUTUBE_MUSIC))
+        assertTrue(merged.indexOf(DownloadSource.JIOSAAVN) < merged.indexOf(DownloadSource.YOUTUBE_MUSIC))
+        assertEquals(DownloadSourceConfig.DEFAULT_ORDER.size, merged.size)
+    }
+
+    @Test
+    fun downloadBlankOrderYieldsDefaults() {
+        assertEquals(DownloadSourceConfig.DEFAULT_ORDER, DownloadSourceConfig.parseOrder(null))
+        assertEquals(DownloadSourceConfig.DEFAULT_ORDER, DownloadSourceConfig.parseOrder(""))
+    }
+}

@@ -1,0 +1,1539 @@
+/*
+ * kongamusic (2026)
+ * © Samk
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
+
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
+
+package moe.kongamusic.ui.menu
+
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.datastore.preferences.core.edit
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.CircularWavyProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.datasource.cache.CacheSpan
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.media3.exoplayer.offline.Download
+import androidx.media3.exoplayer.offline.DownloadRequest
+import androidx.media3.exoplayer.offline.DownloadService
+import androidx.navigation.NavController
+import coil3.compose.AsyncImage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import moe.kongamusic.LocalDatabase
+import moe.kongamusic.LocalDownloadUtil
+import moe.kongamusic.LocalPlayerConnection
+import moe.kongamusic.LocalSyncUtils
+import moe.kongamusic.R
+import moe.kongamusic.canvas.SpotifyCanvasProvider
+import moe.kongamusic.canvas.models.CanvasArtwork
+import moe.kongamusic.constants.ArtistSeparatorsKey
+import moe.kongamusic.constants.ExternalDownloaderEnabledKey
+import moe.kongamusic.constants.ExternalDownloaderPackageKey
+import moe.kongamusic.constants.ListThumbnailSize
+import moe.kongamusic.constants.SpeedDialSongIdsKey
+import moe.kongamusic.constants.SpotifyCanvasKey
+import moe.kongamusic.constants.SpotifySpDcKey
+import moe.kongamusic.db.entities.ArtistEntity
+import moe.kongamusic.db.entities.Event
+import moe.kongamusic.db.entities.fileExtension
+import moe.kongamusic.db.entities.detectAudioExtensionFromSpans
+import moe.kongamusic.db.entities.extensionToMimeType
+import moe.kongamusic.db.entities.PlaylistSong
+import moe.kongamusic.db.entities.Song
+import moe.kongamusic.extensions.toMediaItem
+import moe.kongamusic.innertube.YouTube
+import moe.kongamusic.models.toMediaMetadata
+import moe.kongamusic.ui.player.CanvasArtworkPlaybackCache
+import moe.kongamusic.ui.player.fetchCanvasArtworkForPlayback
+import moe.kongamusic.playback.ExoDownloadService
+import moe.kongamusic.playback.queues.YouTubeQueue
+import moe.kongamusic.telegram.isTelegramMediaId
+import moe.kongamusic.ui.component.ListDialog
+import moe.kongamusic.ui.component.LocalBottomSheetPageState
+import moe.kongamusic.ui.component.MenuSurfaceSection
+import moe.kongamusic.ui.component.MuzoQuickAction
+import moe.kongamusic.ui.component.MuzoQuickActionRow
+import moe.kongamusic.ui.component.MuzoSongMenuHeader
+import moe.kongamusic.ui.component.SongListItem
+import moe.kongamusic.ui.component.TextFieldDialog
+import moe.kongamusic.ui.component.MenuSectionDivider
+import moe.kongamusic.ui.utils.ShowMediaInfo
+import moe.kongamusic.ui.utils.YtimgResizePolicy
+import moe.kongamusic.ui.utils.resize
+import moe.kongamusic.utils.SpeedDialPin
+import moe.kongamusic.utils.SpeedDialPinType
+import moe.kongamusic.utils.parseSpeedDialPins
+import moe.kongamusic.utils.rememberPreference
+import moe.kongamusic.utils.serializeSpeedDialPins
+import moe.kongamusic.utils.shareLocalAudio
+import moe.kongamusic.utils.toggleSpeedDialPin
+import moe.kongamusic.viewmodels.CachePlaylistViewModel
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+
+private data class CanvasSourceOption(
+    val label: String,
+    val artwork: CanvasArtwork,
+)
+
+@Composable
+fun SongMenu(
+    originalSong: Song,
+    event: Event? = null,
+    navController: NavController,
+    playlistSong: PlaylistSong? = null,
+    playlistBrowseId: String? = null,
+    onDismiss: () -> Unit,
+    isFromCache: Boolean = false,
+) {
+    val context = LocalContext.current
+    val database = LocalDatabase.current
+    val playerConnection = LocalPlayerConnection.current ?: return
+    val songState = database.song(originalSong.id).collectAsStateWithLifecycle(initialValue = originalSong)
+    val song = songState.value ?: originalSong
+    val downloadUtil = LocalDownloadUtil.current
+    val downloadStateIds = remember(originalSong.id) { downloadUtil.currentSourceDownloadIds(originalSong.id) }
+    val downloadsMap by downloadUtil.downloads.collectAsStateWithLifecycle()
+    val download = downloadStateIds.firstNotNullOfOrNull { downloadsMap[it] }
+    val coroutineScope = rememberCoroutineScope()
+    val syncUtils = LocalSyncUtils.current
+    var refetchIconDegree by remember { mutableFloatStateOf(0f) }
+
+    val cacheViewModel = hiltViewModel<CachePlaylistViewModel>()
+
+    val songFormat by database.format(song.id).collectAsStateWithLifecycle(initialValue = null)
+    val detectedExt by produceState(
+        initialValue = songFormat?.fileExtension() ?: "mp3",
+        song.id,
+    ) {
+        withContext(Dispatchers.IO) {
+            val cache = downloadUtil.downloadCache
+            val spans = getCachedSpansForKey(cache, song.id)
+            if (spans.isNotEmpty()) {
+                value = detectAudioExtensionFromSpans(spans)
+            }
+        }
+    }
+    val exportMimeType = extensionToMimeType(detectedExt)
+    val exportToDownloadsLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(exportMimeType)) { destUri ->
+            if (destUri == null) return@rememberLauncherForActivityResult
+            val songId = song.id
+            val songTitle = song.song.title
+            coroutineScope.launch {
+                val result = exportDownloadedSongToUri(context, downloadUtil, destUri, songId, songTitle)
+                val msgResId = result.fold(
+                    onSuccess = { R.string.export_to_downloads_success },
+                    onFailure = { R.string.export_to_folder_failed },
+                )
+                Toast.makeText(context, context.getString(msgResId), Toast.LENGTH_SHORT).show()
+            }
+        }
+
+    val rotationAnimation by animateFloatAsState(
+        targetValue = refetchIconDegree,
+        animationSpec = tween(durationMillis = 800),
+        label = "",
+    )
+
+    val (artistSeparators) = rememberPreference(ArtistSeparatorsKey, defaultValue = ",;/&")
+    val (externalDownloaderEnabled) = rememberPreference(ExternalDownloaderEnabledKey, defaultValue = false)
+    val (externalDownloaderPackage) = rememberPreference(ExternalDownloaderPackageKey, defaultValue = "")
+    val (speedDialSongIds, onSpeedDialSongIdsChange) = rememberPreference(SpeedDialSongIdsKey, "")
+    val (spotifyCanvasEnabled) = rememberPreference(SpotifyCanvasKey, false)
+
+    val (spotifySpDc) = rememberPreference(SpotifySpDcKey, defaultValue = "")
+    val spotifyCanvasAvailable = spotifyCanvasEnabled || spotifySpDc.isNotBlank()
+    val speedDialPins = remember(speedDialSongIds) { parseSpeedDialPins(speedDialSongIds) }
+    val songPin = remember(song.id) { SpeedDialPin(type = SpeedDialPinType.SONG, id = song.id) }
+    val isInSpeedDial =
+        remember(speedDialPins, songPin) {
+            speedDialPins.any { it.type == songPin.type && it.id == songPin.id }
+        }
+
+    val orderedArtists by produceState(initialValue = emptyList<ArtistEntity>(), song) {
+        withContext(Dispatchers.IO) {
+            val artistMaps = database.songArtistMap(song.id).sortedBy { it.position }
+            val sorted =
+                artistMaps.mapNotNull { map ->
+                    song.artists.firstOrNull { it.id == map.artistId }
+                }
+            value = sorted
+        }
+    }
+
+    data class SplitArtist(
+        val name: String,
+        val originalArtist: ArtistEntity?,
+    )
+
+    val splitArtists =
+        remember(orderedArtists, artistSeparators) {
+            if (artistSeparators.isEmpty()) {
+                orderedArtists.map { SplitArtist(it.name, it) }
+            } else {
+                val separatorRegex = "[${Regex.escape(artistSeparators)}]".toRegex()
+                orderedArtists.flatMap { artist ->
+                    val parts =
+                        artist.name
+                            .split(separatorRegex)
+                            .map { it.trim() }
+                            .filter { it.isNotEmpty() }
+                    if (parts.size > 1) {
+
+                        parts.mapIndexed { index, name ->
+                            SplitArtist(name, if (index == 0) artist else null)
+                        }
+                    } else {
+                        listOf(SplitArtist(artist.name, artist))
+                    }
+                }
+            }
+        }
+
+    var showEditDialog by rememberSaveable {
+        mutableStateOf(false)
+    }
+
+    var showSleepTimerSheet by rememberSaveable { mutableStateOf(false) }
+
+    val TextFieldValueSaver: Saver<TextFieldValue, *> =
+        Saver(
+            save = { it.text },
+            restore = { text -> TextFieldValue(text, TextRange(text.length)) },
+        )
+
+    var titleField by rememberSaveable(stateSaver = TextFieldValueSaver) {
+        mutableStateOf(TextFieldValue(song.song.title))
+    }
+
+    var artistField by rememberSaveable(stateSaver = TextFieldValueSaver) {
+        mutableStateOf(
+            TextFieldValue(
+                song.artists
+                    .firstOrNull()
+                    ?.name
+                    .orEmpty(),
+            ),
+        )
+    }
+
+    if (showEditDialog) {
+        TextFieldDialog(
+            icon = {
+                Icon(
+                    painter = painterResource(R.drawable.edit),
+                    contentDescription = null,
+                )
+            },
+            title = {
+                Text(text = stringResource(R.string.edit_song))
+            },
+            textFields =
+                listOf(
+                    stringResource(R.string.song_title) to titleField,
+                    stringResource(R.string.artist_name) to artistField,
+                ),
+            onTextFieldsChange = { index, newValue ->
+                if (index == 0) {
+                    titleField = newValue
+                } else {
+                    artistField = newValue
+                }
+            },
+            onDoneMultiple = { values ->
+                val newTitle = values[0]
+                val newArtist = values[1]
+
+                coroutineScope.launch {
+                    database.query {
+                        update(song.song.copy(title = newTitle, titleOverride = true))
+                        val artist = song.artists.firstOrNull()
+                        if (artist != null) {
+                            update(artist.copy(name = newArtist))
+                        }
+                    }
+
+                    showEditDialog = false
+                    onDismiss()
+                }
+            },
+            onDismiss = { showEditDialog = false },
+        )
+    }
+
+    var showChoosePlaylistDialog by rememberSaveable {
+        mutableStateOf(false)
+    }
+
+    var showErrorPlaylistAddDialog by rememberSaveable {
+        mutableStateOf(false)
+    }
+    var showCanvasSourceDialog by rememberSaveable { mutableStateOf(false) }
+    var canvasSources by remember(song.id) { mutableStateOf<List<CanvasSourceOption>>(emptyList()) }
+    var canvasSourcesLoading by remember(song.id) { mutableStateOf(false) }
+    var canvasSaving by remember(song.id) { mutableStateOf(false) }
+
+    fun loadCanvasSources() {
+        if (canvasSourcesLoading || canvasSaving) return
+        canvasSourcesLoading = true
+        coroutineScope.launch {
+            val sources = withContext(Dispatchers.IO) {
+                val byUrl = linkedMapOf<String, CanvasSourceOption>()
+                val title = song.song.title
+                val artist = song.artists.firstOrNull()?.name.orEmpty()
+                val storefront = java.util.Locale.getDefault().country.lowercase().ifBlank { "us" }
+                fetchCanvasArtworkForPlayback(
+                    songTitleRaw = title,
+                    artistNameRaw = artist,
+                    storefront = storefront,
+                    requireVertical = false,
+                    forceRefresh = true,
+                    strictIdentity = !song.song.isLocal,
+                    albumTitle = song.song.albumName,
+                )?.let { artwork ->
+                    artwork.preferredAnimationUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                        byUrl[url] = CanvasSourceOption("kongamusic / Apple Music", artwork)
+                    }
+                }
+                if (spotifyCanvasAvailable && !song.song.isLocal) {
+                    runCatching {
+                        SpotifyCanvasProvider.getByVideoId(
+                            videoId = song.id,
+                            songTitle = title,
+                            artistName = artist,
+                        )
+                    }
+                        .getOrNull()
+                        ?.let { artwork ->
+                            artwork.preferredAnimationUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                                byUrl.putIfAbsent(url, CanvasSourceOption("Spotify", artwork))
+                            }
+                        }
+                }
+                byUrl.values.toList()
+            }
+            canvasSources = sources
+            canvasSourcesLoading = false
+            if (sources.isEmpty()) {
+                Toast.makeText(context, context.getString(R.string.canvas_unavailable), Toast.LENGTH_SHORT).show()
+            } else {
+                showCanvasSourceDialog = true
+            }
+        }
+    }
+
+    fun saveCanvasSource(source: CanvasSourceOption) {
+        showCanvasSourceDialog = false
+        canvasSaving = true
+        coroutineScope.launch {
+            val saved = withContext(Dispatchers.IO) {
+                CanvasArtworkPlaybackCache.save(song.id, source.artwork)
+            }
+            canvasSaving = false
+            Toast.makeText(
+                context,
+                context.getString(if (saved) R.string.canvas_saved else R.string.canvas_save_failed),
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
+
+    if (showCanvasSourceDialog) {
+        ListDialog(onDismiss = { showCanvasSourceDialog = false }) {
+            item {
+                ListItem(
+                    headlineContent = { Text(text = stringResource(R.string.canvas_source_title)) },
+                    leadingContent = {
+                        Icon(painter = painterResource(R.drawable.image), contentDescription = null)
+                    },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                )
+            }
+            items(canvasSources, key = { it.label }) { source ->
+                ListItem(
+                    headlineContent = { Text(text = source.label) },
+                    leadingContent = {
+                        Icon(painter = painterResource(R.drawable.download), contentDescription = null)
+                    },
+                    modifier = Modifier.fillMaxWidth().clickable { saveCanvasSource(source) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                )
+            }
+        }
+    }
+
+    AddToPlaylistDialog(
+        isVisible = showChoosePlaylistDialog,
+        onGetSong = {
+            listOf(song.id)
+        },
+        onDismiss = {
+            showChoosePlaylistDialog = false
+        },
+        onAddComplete = { songCount, playlistNames ->
+            val message =
+                when {
+                    playlistNames.size == 1 -> context.getString(R.string.added_to_playlist, playlistNames.first())
+                    else -> context.getString(R.string.added_to_n_playlists, playlistNames.size)
+                }
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        },
+    )
+
+    if (showErrorPlaylistAddDialog) {
+        ListDialog(
+            onDismiss = {
+                showErrorPlaylistAddDialog = false
+                onDismiss()
+            },
+        ) {
+            item {
+                ListItem(
+                    headlineContent = { Text(text = stringResource(R.string.already_in_playlist)) },
+                    leadingContent = {
+                        Image(
+                            painter = painterResource(R.drawable.close),
+                            contentDescription = null,
+                            colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onBackground),
+                            modifier = Modifier.size(ListThumbnailSize),
+                        )
+                    },
+                    modifier = Modifier.clickable { showErrorPlaylistAddDialog = false },
+                )
+            }
+
+            items(listOf(song)) { song ->
+                SongListItem(song = song)
+            }
+        }
+    }
+
+    var showSelectArtistDialog by rememberSaveable {
+        mutableStateOf(false)
+    }
+
+    if (showSelectArtistDialog) {
+        ListDialog(
+            onDismiss = { showSelectArtistDialog = false },
+        ) {
+            items(
+                items = splitArtists.distinctBy { it.name },
+                key = { it.name },
+            ) { splitArtist ->
+                ListItem(
+                    headlineContent = {
+                        Text(
+                            text = splitArtist.name,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                    leadingContent = {
+                        AsyncImage(
+                            model =
+                                splitArtist.originalArtist?.thumbnailUrl?.resize(
+                                    width = 200,
+                                    height = 200,
+                                    ytimgResizePolicy = YtimgResizePolicy.PreserveOriginal,
+                                ),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier =
+                                Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape),
+                        )
+                    },
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                splitArtist.originalArtist?.let { artist ->
+                                    navController.navigate("artist/${artist.id}")
+                                    showSelectArtistDialog = false
+                                    onDismiss()
+                                }
+                            },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                )
+            }
+        }
+    }
+
+    MuzoSongMenuHeader(
+        artworkUrl = song.song.thumbnailUrl,
+        title = song.song.title,
+        artist = song.artists.joinToString { it.name },
+    )
+
+    Spacer(modifier = Modifier.height(16.dp))
+
+    val bottomSheetPageState = LocalBottomSheetPageState.current
+    val isLocalSong = song.song.isLocal
+
+    val isTelegramSong = song.song.id.isTelegramMediaId()
+
+    val startRadioText = stringResource(R.string.start_radio)
+    val playNextText = stringResource(R.string.play_next)
+    val addToQueueText = stringResource(R.string.add_to_queue)
+    val addToPlaylistText = stringResource(R.string.add_to_playlist)
+    val shareText = stringResource(R.string.share)
+    val editText = stringResource(R.string.edit)
+    val likedLabel = stringResource(R.string.liked_label)
+    val downloadLabel = stringResource(R.string.action_download)
+    val downloadingLabel = stringResource(R.string.downloading)
+    val downloadedLabel = stringResource(R.string.downloaded_label)
+    val addToDotsLabel = stringResource(R.string.add_to_dots)
+
+    val quickActions =
+        remember(
+            song,
+            download?.state,
+            likedLabel,
+            downloadLabel,
+            downloadingLabel,
+            downloadedLabel,
+            addToDotsLabel,
+            playNextText,
+            onDismiss,
+            playerConnection,
+        ) {
+            listOf(
+                MuzoQuickAction(
+                    icon = {
+                        Icon(
+                            painter =
+                                painterResource(
+                                    if (song.song.liked) R.drawable.favorite else R.drawable.favorite_border,
+                                ),
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    },
+                    label = likedLabel,
+
+                    onClick = {
+                        val s = song.song.toggleLike()
+                        database.query {
+                            update(s)
+                        }
+                        syncUtils.likeSong(s)
+                    },
+                ),
+                MuzoQuickAction(
+                    icon = {
+                        when (download?.state) {
+                            Download.STATE_COMPLETED ->
+                                Icon(
+                                    painter = painterResource(R.drawable.offline),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp),
+                                )
+
+                            Download.STATE_QUEUED, Download.STATE_DOWNLOADING ->
+                                CircularWavyProgressIndicator(
+                                    modifier = Modifier.size(22.dp),
+                                )
+
+                            else ->
+                                Icon(
+                                    painter = painterResource(R.drawable.download),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                        }
+                    },
+                    label =
+                        when (download?.state) {
+                            Download.STATE_COMPLETED -> downloadedLabel
+                            Download.STATE_QUEUED, Download.STATE_DOWNLOADING -> downloadingLabel
+                            else -> downloadLabel
+                        },
+                    active = download?.state == Download.STATE_COMPLETED,
+                    onClick = {
+                        when (download?.state) {
+                            Download.STATE_COMPLETED, Download.STATE_QUEUED, Download.STATE_DOWNLOADING -> {
+                                download?.let { dl ->
+                                    DownloadService.sendRemoveDownload(
+                                        context,
+                                        ExoDownloadService::class.java,
+                                        dl.request.id,
+                                        false,
+                                    )
+                                }
+                            }
+
+                            else -> {
+
+                                val dl = download
+                                if (dl != null && dl.state != Download.STATE_COMPLETED) {
+                                    DownloadService.sendRemoveDownload(
+                                        context,
+                                        ExoDownloadService::class.java,
+                                        dl.request.id,
+                                        false,
+                                    )
+                                }
+                                downloadUtil.clearCurrentTargetCacheSpans(song.id)
+                                val downloadId = downloadUtil
+                                    .currentSourceDownloadTarget(song.id).key
+                                val downloadRequest =
+                                    DownloadRequest
+                                        .Builder(downloadId, song.id.toUri())
+                                        .setCustomCacheKey(downloadId)
+                                        .setData(song.song.title.toByteArray())
+                                        .build()
+                                DownloadService.sendAddDownload(
+                                    context,
+                                    ExoDownloadService::class.java,
+                                    downloadRequest,
+                                    false,
+                                )
+                            }
+                        }
+                    },
+                ),
+                MuzoQuickAction(
+                    icon = {
+                        Icon(
+                            painter = painterResource(R.drawable.playlist_add),
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    },
+                    label = addToDotsLabel,
+                    onClick = { showChoosePlaylistDialog = true },
+                ),
+                MuzoQuickAction(
+                    icon = {
+                        Icon(
+                            painter = painterResource(R.drawable.playlist_play),
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    },
+                    label = playNextText,
+                    onClick = {
+                        onDismiss()
+                        playerConnection.playNext(song.toMediaItem())
+                    },
+                ),
+            )
+        }
+
+    val showMutationSection = event != null || playlistSong != null || isFromCache || !isLocalSong
+
+    LazyColumn(
+        contentPadding =
+            PaddingValues(
+                start = 0.dp,
+                top = 0.dp,
+                end = 0.dp,
+                bottom = 12.dp,
+            ),
+    ) {
+
+        if (showSleepTimerSheet) {
+            item {
+                AppleMusicSleepTimerSheet(
+                    sleepTimer = playerConnection.service.sleepTimer,
+                    onDismiss = {
+                        showSleepTimerSheet = false
+                        onDismiss()
+                    },
+                )
+            }
+        } else {
+
+            item {
+                MuzoQuickActionRow(actions = quickActions)
+            }
+
+            item {
+                MenuSectionDivider()
+            }
+
+            item {
+                MenuSurfaceSection {
+                    Column {
+                        if (!isLocalSong && !isTelegramSong) {
+                            ListItem(
+                                headlineContent = { Text(text = startRadioText) },
+                                leadingContent = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.radio),
+                                        contentDescription = null,
+                                    )
+                                },
+                                modifier =
+                                    Modifier.clickable {
+                                        onDismiss()
+                                        playerConnection.playQueue(YouTubeQueue.radio(song.toMediaMetadata()))
+                                    },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            )
+
+                            HorizontalDivider(
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant,
+                                thickness = 0.5.dp,
+                            )
+                        }
+
+                        ListItem(
+                            headlineContent = { Text(text = addToQueueText) },
+                            leadingContent = {
+                                Icon(
+                                    painter = painterResource(R.drawable.queue_music),
+                                    contentDescription = null,
+                                )
+                            },
+                            modifier =
+                                Modifier.clickable {
+                                    onDismiss()
+                                    playerConnection.addToQueue(song.toMediaItem())
+                                },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        )
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant,
+                            thickness = 0.5.dp,
+                        )
+
+                        ListItem(
+                            headlineContent = { Text(text = shareText) },
+                            leadingContent = {
+                                Icon(
+                                    painter = painterResource(R.drawable.share),
+                                    contentDescription = null,
+                                )
+                            },
+                            modifier =
+                                Modifier.clickable {
+                                    onDismiss()
+                                    if (isLocalSong) {
+                                        shareLocalAudio(context, song.id, song.format?.mimeType)
+                                    } else {
+                                        val intent =
+                                            Intent().apply {
+                                                action = Intent.ACTION_SEND
+                                                type = "text/plain"
+                                                putExtra(Intent.EXTRA_TEXT, "https://music.youtube.com/watch?v=${song.id}")
+                                            }
+                                        context.startActivity(Intent.createChooser(intent, null))
+                                    }
+                                },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        )
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant,
+                            thickness = 0.5.dp,
+                        )
+
+                        ListItem(
+                            headlineContent = { Text(text = editText) },
+                            leadingContent = {
+                                Icon(
+                                    painter = painterResource(R.drawable.edit),
+                                    contentDescription = null,
+                                )
+                            },
+                            modifier = Modifier.clickable { showEditDialog = true },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        )
+                    }
+                }
+            }
+
+        item {
+            MenuSectionDivider()
+        }
+
+        if (!isLocalSong) {
+            item {
+                MenuSurfaceSection {
+                    ListItem(
+                        headlineContent = {
+                            Text(
+                                text =
+                                    stringResource(
+                                        if (song.song.inLibrary == null) {
+                                            R.string.add_to_library
+                                        } else {
+                                            R.string.remove_from_library
+                                        },
+                                    ),
+                            )
+                        },
+                        leadingContent = {
+                            Icon(
+                                painter =
+                                    painterResource(
+                                        if (song.song.inLibrary == null) {
+                                            R.drawable.library_add
+                                        } else {
+                                            R.drawable.library_add_check
+                                        },
+                                    ),
+                                contentDescription = null,
+                            )
+                        },
+                        modifier =
+                            Modifier.clickable {
+                                onDismiss()
+                                database.query {
+                                    update(song.song.toggleLibrary())
+                                }
+                            },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    )
+                }
+            }
+
+            item {
+                MenuSectionDivider()
+            }
+        }
+
+        item {
+            MenuSurfaceSection {
+                ListItem(
+                    headlineContent = { Text(text = addToPlaylistText) },
+                    leadingContent = {
+                        Icon(
+                            painter = painterResource(R.drawable.playlist_add),
+                            contentDescription = null,
+                        )
+                    },
+                    modifier = Modifier.clickable { showChoosePlaylistDialog = true },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                )
+            }
+        }
+
+        item {
+            MenuSectionDivider()
+        }
+
+        item {
+            MenuSurfaceSection {
+                ListItem(
+                    headlineContent = {
+                        Text(
+                            text =
+                                stringResource(
+                                    if (isInSpeedDial) {
+                                        R.string.remove_from_speed_dial
+                                    } else {
+                                        R.string.pin_to_speed_dial
+                                    },
+                                ),
+                        )
+                    },
+                    leadingContent = {
+                        Icon(
+                            painter = painterResource(if (isInSpeedDial) R.drawable.bookmark_filled else R.drawable.bookmark),
+                            contentDescription = null,
+                        )
+                    },
+                    modifier =
+                        Modifier.clickable {
+                            val updatedPins = toggleSpeedDialPin(speedDialPins, songPin)
+                            onSpeedDialSongIdsChange(serializeSpeedDialPins(updatedPins))
+                            onDismiss()
+                        },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                )
+            }
+        }
+
+        item {
+            MenuSectionDivider()
+        }
+
+        if (showMutationSection) {
+            item {
+                MenuSurfaceSection {
+                    val dividerModifier = Modifier.padding(horizontal = 16.dp)
+                    Column {
+                        if (event != null) {
+                            ListItem(
+                                headlineContent = {
+                                    Text(
+                                        text = stringResource(R.string.remove_from_history),
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                },
+                                leadingContent = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.delete),
+                                        tint = MaterialTheme.colorScheme.error,
+                                        contentDescription = null,
+                                    )
+                                },
+                                modifier =
+                                    Modifier.clickable {
+                                        onDismiss()
+                                        database.query {
+                                            delete(event)
+                                        }
+                                    },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            )
+                        }
+
+                        if (event != null) {
+                            HorizontalDivider(
+                                modifier = dividerModifier,
+                                color = MaterialTheme.colorScheme.outlineVariant,
+                                thickness = 0.5.dp,
+                            )
+                        }
+
+                        if (playlistSong != null) {
+                            ListItem(
+                                headlineContent = {
+                                    Text(
+                                        text = stringResource(R.string.remove_from_playlist),
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                },
+                                leadingContent = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.delete),
+                                        tint = MaterialTheme.colorScheme.error,
+                                        contentDescription = null,
+                                    )
+                                },
+                                modifier =
+                                    Modifier.clickable {
+                                        val map = playlistSong.map
+                                        coroutineScope.launch(Dispatchers.IO) {
+                                            val browseId = playlistBrowseId
+                                            if (browseId != null) {
+                                                val remoteResult = removeSongFromRemotePlaylist(browseId, map)
+                                                if (remoteResult.isFailure) {
+                                                    withContext(Dispatchers.Main) {
+                                                        Toast
+                                                            .makeText(
+                                                                context,
+                                                                context.getString(R.string.error_unknown),
+                                                                Toast.LENGTH_SHORT,
+                                                            ).show()
+                                                        onDismiss()
+                                                    }
+                                                    return@launch
+                                                }
+                                            }
+                                            database.withTransaction {
+                                                val maxPosition = maxPlaylistSongPosition(map.playlistId) ?: map.position
+                                                if (map.position < maxPosition) {
+                                                    move(map.playlistId, map.position, maxPosition)
+                                                }
+                                                delete(map)
+                                            }
+                                            withContext(Dispatchers.Main) {
+                                                onDismiss()
+                                            }
+                                        }
+                                    },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            )
+
+                            HorizontalDivider(
+                                modifier = dividerModifier,
+                                color = MaterialTheme.colorScheme.outlineVariant,
+                                thickness = 0.5.dp,
+                            )
+                        }
+
+                        if (isFromCache) {
+                            ListItem(
+                                headlineContent = {
+                                    Text(
+                                        text = stringResource(R.string.remove_from_cache),
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                },
+                                leadingContent = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.delete),
+                                        tint = MaterialTheme.colorScheme.error,
+                                        contentDescription = null,
+                                    )
+                                },
+                                modifier =
+                                    Modifier.clickable {
+                                        onDismiss()
+                                        cacheViewModel.removeSongFromCache(song.id)
+                                    },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            )
+
+                            HorizontalDivider(
+                                modifier = dividerModifier,
+                                color = MaterialTheme.colorScheme.outlineVariant,
+                                thickness = 0.5.dp,
+                            )
+                        }
+
+                        if (!isLocalSong) {
+                            when (download?.state) {
+                                Download.STATE_COMPLETED -> {
+                                    ListItem(
+                                        headlineContent = {
+                                            Text(
+                                                text = stringResource(R.string.remove_download),
+                                                color = MaterialTheme.colorScheme.error,
+                                            )
+                                        },
+                                        leadingContent = {
+                                            Icon(
+                                                painter = painterResource(R.drawable.offline),
+                                                tint = MaterialTheme.colorScheme.error,
+                                                contentDescription = null,
+                                            )
+                                        },
+                                        modifier =
+                                            Modifier.clickable {
+                                                download?.let { dl ->
+                                                    DownloadService.sendRemoveDownload(
+                                                        context,
+                                                        ExoDownloadService::class.java,
+                                                        dl.request.id,
+                                                        false,
+                                                    )
+                                                }
+                                            },
+                                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                    )
+                                }
+
+                                Download.STATE_QUEUED, Download.STATE_DOWNLOADING -> {
+                                    ListItem(
+                                        headlineContent = { Text(text = stringResource(R.string.downloading)) },
+                                        leadingContent = {
+                                            CircularWavyProgressIndicator(
+                                                modifier = Modifier.size(24.dp),
+                                            )
+                                        },
+                                        modifier =
+                                            Modifier.clickable {
+                                                download?.let { dl ->
+                                                    DownloadService.sendRemoveDownload(
+                                                        context,
+                                                        ExoDownloadService::class.java,
+                                                        dl.request.id,
+                                                        false,
+                                                    )
+                                                }
+                                            },
+                                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                    )
+                                }
+
+                                else -> {
+                                    ListItem(
+                                        headlineContent = { Text(text = stringResource(R.string.action_download)) },
+                                        leadingContent = {
+                                            Icon(
+                                                painter = painterResource(R.drawable.download),
+                                                contentDescription = null,
+                                            )
+                                        },
+                                        modifier =
+                                            Modifier.clickable {
+
+                                                val dl = download
+                                                if (dl != null &&
+                                                    dl.state != Download.STATE_COMPLETED
+                                                ) {
+                                                    DownloadService.sendRemoveDownload(
+                                                        context,
+                                                        ExoDownloadService::class.java,
+                                                        dl.request.id,
+                                                        false,
+                                                    )
+                                                }
+
+                                                downloadUtil.clearCurrentTargetCacheSpans(song.id)
+                                                val downloadId = downloadUtil
+                                                    .currentSourceDownloadTarget(song.id).key
+                                                val downloadRequest =
+                                                    DownloadRequest
+                                                        .Builder(downloadId, song.id.toUri())
+                                                        .setCustomCacheKey(downloadId)
+                                                        .setData(song.song.title.toByteArray())
+                                                        .build()
+                                                DownloadService.sendAddDownload(
+                                                    context,
+                                                    ExoDownloadService::class.java,
+                                                    downloadRequest,
+                                                    false,
+                                                )
+                                            },
+                                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                    )
+                                }
+                            }
+
+                            if (download?.state == Download.STATE_COMPLETED) {
+                                val safeTitle = song.song.title.trim()
+                                    .replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "audio" }
+                                val ext = detectedExt
+                                ListItem(
+                                    headlineContent = {
+                                        Text(text = stringResource(R.string.export))
+                                    },
+                                    leadingContent = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.download),
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    modifier =
+                                        Modifier.clickable {
+                                            exportToDownloadsLauncher.launch("$safeTitle.$ext")
+                                        },
+                                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                )
+                            }
+                            if (externalDownloaderEnabled) {
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant,
+                                    thickness = 0.5.dp,
+                                )
+                                ListItem(
+                                    headlineContent = { Text(text = stringResource(R.string.open_with_downloader)) },
+                                    leadingContent = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.download),
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    modifier =
+                                        Modifier.clickable {
+                                            onDismiss()
+                                            val url = "https://music.youtube.com/watch?v=${song.id}"
+                                            if (externalDownloaderPackage.isBlank()) {
+                                                Toast
+                                                    .makeText(
+                                                        context,
+                                                        context.getString(R.string.external_downloader_not_configured),
+                                                        Toast.LENGTH_LONG,
+                                                    ).show()
+                                                return@clickable
+                                            }
+                                            val intent =
+                                                android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                                                    setPackage(externalDownloaderPackage)
+                                                    data = android.net.Uri.parse(url)
+                                                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                }
+                                            try {
+                                                context.startActivity(intent)
+                                            } catch (e: android.content.ActivityNotFoundException) {
+                                                Toast
+                                                    .makeText(
+                                                        context,
+                                                        context.getString(R.string.external_downloader_not_installed),
+                                                        Toast.LENGTH_SHORT,
+                                                    ).show()
+                                            }
+                                        },
+                                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                MenuSectionDivider()
+            }
+        }
+
+        item {
+            MenuSurfaceSection {
+                Column {
+                    ListItem(
+                        headlineContent = { Text(text = stringResource(R.string.view_artist)) },
+                        leadingContent = {
+                            Icon(
+                                painter = painterResource(R.drawable.artist),
+                                contentDescription = null,
+                            )
+                        },
+                        modifier =
+                            Modifier.clickable {
+                                if (splitArtists.size == 1 && splitArtists[0].originalArtist != null) {
+                                    navController.navigate("artist/${splitArtists[0].originalArtist!!.id}")
+                                    onDismiss()
+                                } else {
+                                    showSelectArtistDialog = true
+                                }
+                            },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    )
+
+                    if (song.song.albumId != null) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant,
+                            thickness = 0.5.dp,
+                        )
+
+                        ListItem(
+                            headlineContent = { Text(text = stringResource(R.string.view_album)) },
+                            leadingContent = {
+                                Icon(
+                                    painter = painterResource(R.drawable.album),
+                                    contentDescription = null,
+                                )
+                            },
+                            modifier =
+                                Modifier.clickable {
+                                    onDismiss()
+                                    navController.navigate("album/${song.song.albumId}")
+                                },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        )
+                    }
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                        thickness = 0.5.dp,
+                    )
+
+                    ListItem(
+                        headlineContent = { Text(text = stringResource(R.string.sleep_timer)) },
+                        leadingContent = {
+                            Icon(
+                                painter = painterResource(R.drawable.bedtime),
+                                contentDescription = null,
+                            )
+                        },
+                        modifier =
+                            Modifier.clickable { showSleepTimerSheet = true },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    )
+                }
+            }
+        }
+
+        if (!song.song.isLocal) item {
+            val blockedSongIds by database.blockedSongIds().collectAsState(initial = emptyList())
+            val isSongBlocked = remember(blockedSongIds, song.id) { song.id in blockedSongIds }
+            MenuSurfaceSection {
+                Column {
+                    ListItem(
+                        headlineContent = {
+                            Text(
+                                text =
+                                    stringResource(
+                                        if (isSongBlocked) {
+                                            R.string.undo_dont_recommend_song_again
+                                        } else {
+                                            R.string.dont_recommend_song_again
+                                        },
+                                    ),
+                            )
+                        },
+                        leadingContent = {
+                            Icon(
+                                painter = painterResource(R.drawable.block),
+                                contentDescription = null,
+                            )
+                        },
+                        modifier =
+                            Modifier.clickable {
+                                coroutineScope.launch {
+                                    database.setSongBlockedAt(
+                                        songId = song.id,
+                                        blockedAt = if (isSongBlocked) null else java.time.LocalDateTime.now(),
+                                    )
+                                    Toast
+                                        .makeText(
+                                            context,
+                                            context.getString(
+                                                if (isSongBlocked) {
+                                                    R.string.song_unblocked_success
+                                                } else {
+                                                    R.string.song_blocked_success
+                                                },
+                                            ),
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    onDismiss()
+                                }
+                            },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    )
+                }
+            }
+        }
+
+        item {
+            MenuSectionDivider()
+        }
+
+        item {
+            MenuSurfaceSection {
+                Column {
+                    ListItem(
+                        headlineContent = {
+                            Text(
+                                text = stringResource(
+                                    if (canvasSaving) R.string.canvas_saving else R.string.save_canvas,
+                                ),
+                            )
+                        },
+                        leadingContent = {
+                            if (canvasSaving) {
+                                CircularWavyProgressIndicator(modifier = Modifier.size(24.dp))
+                            } else {
+                                Icon(
+                                    painter = painterResource(R.drawable.image),
+                                    contentDescription = null,
+                                )
+                            }
+                        },
+                        modifier = Modifier.clickable { loadCanvasSources() },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    )
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                        thickness = 0.5.dp,
+                    )
+
+                    ListItem(
+                        headlineContent = { Text(text = stringResource(R.string.download_cover)) },
+                        leadingContent = {
+                            Icon(
+                                painter = painterResource(R.drawable.image),
+                                contentDescription = null,
+                            )
+                        },
+                        modifier =
+                            Modifier.clickable {
+                                val url = song.song.thumbnailUrl
+                                if (url.isNullOrBlank()) {
+                                    android.widget.Toast
+                                        .makeText(
+                                            context,
+                                            context.getString(R.string.cover_save_no_artwork),
+                                            android.widget.Toast.LENGTH_SHORT,
+                                        ).show()
+                                    return@clickable
+                                }
+                                android.widget.Toast
+                                    .makeText(
+                                        context,
+                                        context.getString(R.string.cover_saving),
+                                        android.widget.Toast.LENGTH_SHORT,
+                                    ).show()
+                                coroutineScope.launch(Dispatchers.IO) {
+                                    val fileName = "cover_${song.id}".replace(Regex("[^A-Za-z0-9_\\-]"), "_")
+                                    val saved = moe.kongamusic.utils.saveCoverArtworkFromUrl(
+                                        context = context,
+                                        thumbnailUrl = url,
+                                        fileName = fileName,
+                                    )
+                                    val msgRes = if (saved != null) {
+                                        R.string.cover_saved
+                                    } else {
+                                        R.string.cover_save_failed
+                                    }
+                                    withContext(Dispatchers.Main) {
+                                        android.widget.Toast
+                                            .makeText(context, context.getString(msgRes), android.widget.Toast.LENGTH_SHORT)
+                                            .show()
+                                    }
+                                }
+                            },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    )
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                        thickness = 0.5.dp,
+                    )
+
+                    if (!isLocalSong) {
+                        ListItem(
+                            headlineContent = { Text(text = stringResource(R.string.refetch)) },
+                            leadingContent = {
+                                Icon(
+                                    painter = painterResource(R.drawable.sync),
+                                    contentDescription = null,
+                                    modifier = Modifier.graphicsLayer(rotationZ = rotationAnimation),
+                                )
+                            },
+                            modifier =
+                                Modifier.clickable {
+                                    refetchIconDegree -= 360
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        YouTube.queue(listOf(song.id)).onSuccess {
+                                            val newSong = it.firstOrNull()
+                                            if (newSong != null) {
+                                                database.transaction {
+                                                    update(song, newSong.toMediaMetadata())
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        )
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant,
+                            thickness = 0.5.dp,
+                        )
+                    }
+
+                    ListItem(
+                        headlineContent = { Text(text = stringResource(R.string.details)) },
+                        leadingContent = {
+                            Icon(
+                                painter = painterResource(R.drawable.info),
+                                contentDescription = null,
+                            )
+                        },
+                        modifier =
+                            Modifier.clickable {
+                                onDismiss()
+                                bottomSheetPageState.show {
+                                    ShowMediaInfo(song.id)
+                                }
+                            },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    )
+                }
+            }
+        }
+        }
+    }
+}
+
+private suspend fun exportDownloadedSongToUri(
+    context: android.content.Context,
+    downloadUtil: moe.kongamusic.playback.DownloadUtil,
+    destUri: Uri,
+    songId: String,
+    songTitle: String,
+): Result<Uri> = runCatching {
+    withContext(Dispatchers.IO) {
+        val cache = downloadUtil.downloadCache
+        val spans = getCachedSpansForKey(cache, songId)
+        if (spans.isEmpty()) {
+            throw IllegalStateException("Download cache is empty for this song")
+        }
+        writeSpansToUri(context, destUri, spans)
+        destUri
+    }
+}
+
+private fun getCachedSpansForKey(
+    cache: androidx.media3.datasource.cache.Cache,
+    songId: String,
+): java.util.NavigableSet<androidx.media3.datasource.cache.CacheSpan> {
+    cache.getCachedSpans(songId)
+        .takeIf { it.isNotEmpty() }
+        ?.let { return it }
+
+    for (prefix in listOf("qobuz:", "tidal:")) {
+        val sourceKey = "$prefix$songId"
+        cache.getCachedSpans(sourceKey)
+            .takeIf { it.isNotEmpty() }
+            ?.let { return it }
+    }
+
+    for (key in cache.keys) {
+        val cleanKey = key.substringAfterLast("/")
+        if (cleanKey == songId || key == songId || key.endsWith(":$songId")) {
+            val spans = cache.getCachedSpans(key)
+            if (spans.isNotEmpty()) return spans
+        }
+    }
+    return java.util.TreeSet()
+}
+
+private fun writeSpansToUri(
+    context: android.content.Context,
+    destUri: Uri,
+    spans: java.util.NavigableSet<androidx.media3.datasource.cache.CacheSpan>,
+) {
+    context.contentResolver.openOutputStream(destUri, "w")?.use { output ->
+        spans.sortedBy { it.position }.forEach { span ->
+            java.io.FileInputStream(span.file).use { input ->
+                input.copyTo(output)
+            }
+        }
+        output.flush()
+    } ?: throw IllegalStateException("Could not open destination stream")
+}

@@ -1,0 +1,677 @@
+/*
+ * kongamusic (2026)
+ * © Samk
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
+
+package moe.kongamusic.viewmodels
+
+import android.content.Context
+import android.net.Uri
+import androidx.annotation.StringRes
+import androidx.compose.runtime.Immutable
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
+import moe.kongamusic.R
+import moe.kongamusic.constants.HideExplicitKey
+import moe.kongamusic.constants.HideVideoKey
+import moe.kongamusic.constants.PlaylistSongSortType
+import moe.kongamusic.constants.PlaylistSuggestionSource
+import moe.kongamusic.constants.PlaylistSuggestionSourceKey
+import moe.kongamusic.db.MusicDatabase
+import moe.kongamusic.db.entities.PlaylistSong
+import moe.kongamusic.extensions.filterBlockedArtists
+import moe.kongamusic.extensions.reversed
+import moe.kongamusic.extensions.toEnum
+import moe.kongamusic.innertube.YouTube
+import moe.kongamusic.innertube.models.SongItem
+import moe.kongamusic.innertube.models.YTItem
+import moe.kongamusic.innertube.models.filterExplicit
+import moe.kongamusic.innertube.models.filterVideo
+import moe.kongamusic.models.PlaylistSuggestion
+import moe.kongamusic.models.PlaylistSuggestionPage
+import moe.kongamusic.models.PlaylistSuggestionQuery
+import moe.kongamusic.models.toMediaMetadata
+import moe.kongamusic.playlist.RemovePlaylistCoverUseCase
+import moe.kongamusic.playlist.UpdatePlaylistCoverUseCase
+import moe.kongamusic.utils.PlaylistSuggestionQueryBuilder
+import moe.kongamusic.utils.SyncUtils
+import moe.kongamusic.utils.dataStore
+import moe.kongamusic.utils.reportException
+import java.text.Collator
+import java.util.Locale
+import javax.inject.Inject
+
+@HiltViewModel
+class LocalPlaylistViewModel
+    @Inject
+    constructor(
+        @ApplicationContext private val context: Context,
+        private val database: MusicDatabase,
+        private val syncUtils: SyncUtils,
+        private val updatePlaylistCover: UpdatePlaylistCoverUseCase,
+        private val removePlaylistCover: RemovePlaylistCoverUseCase,
+        savedStateHandle: SavedStateHandle,
+    ) : ViewModel() {
+        val playlistId = savedStateHandle.get<String>("playlistId")!!
+        val playlist =
+            database
+                .playlist(playlistId)
+                .stateIn(viewModelScope, SharingStarted.Lazily, null)
+
+        val sortType: StateFlow<PlaylistSongSortType> =
+            playlist
+                .map { it?.playlist?.songSortType.toEnum(PlaylistSongSortType.CUSTOM) }
+                .distinctUntilChanged()
+                .stateIn(viewModelScope, SharingStarted.Eagerly, PlaylistSongSortType.CUSTOM)
+
+        val sortDescending: StateFlow<Boolean> =
+            playlist
+                .map { it?.playlist?.songSortDescending ?: true }
+                .distinctUntilChanged()
+                .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+        val playlistSongs: StateFlow<List<PlaylistSong>> =
+            combine(
+                database.playlistSongs(playlistId),
+                sortType,
+                sortDescending,
+                context.dataStore.data
+                    .map { preferences -> preferences[HideVideoKey] ?: false }
+                    .distinctUntilChanged(),
+            ) { songs, sortType, sortDescending, hideVideo ->
+                val visibleSongs =
+                    songs
+                        .filter { playlistSong -> playlistSong.song.artists.none { it.blockedAt != null } }
+                        .filter { playlistSong -> !hideVideo || !playlistSong.song.song.isMusicVideo }
+                when (sortType) {
+                    PlaylistSongSortType.CUSTOM -> {
+                        visibleSongs
+                    }
+
+                    PlaylistSongSortType.CREATE_DATE -> {
+                        visibleSongs.sortedBy { it.map.id }
+                    }
+
+                    PlaylistSongSortType.NAME -> {
+                        visibleSongs.sortedBy { it.song.song.title }
+                    }
+
+                    PlaylistSongSortType.ARTIST -> {
+                        val collator = Collator.getInstance(Locale.getDefault())
+                        collator.strength = Collator.PRIMARY
+                        visibleSongs
+                            .sortedWith(compareBy(collator) { song -> song.song.artists.joinToString("") { artist -> artist.name } })
+                            .groupBy { it.song.album?.title }
+                            .flatMap { (_, songsByAlbum) ->
+                                songsByAlbum.sortedBy { playlistSong ->
+                                    playlistSong.song.artists.joinToString("") { artist -> artist.name }
+                                }
+                            }
+                    }
+
+                    PlaylistSongSortType.PLAY_TIME -> {
+                        visibleSongs.sortedBy { it.song.song.totalPlayTime }
+                    }
+                }.reversed(sortDescending && sortType != PlaylistSongSortType.CUSTOM)
+            }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+        fun updateSortPreference(
+            newSortType: PlaylistSongSortType,
+            newSortDescending: Boolean,
+        ) {
+            viewModelScope.launch(Dispatchers.IO) {
+                database.updatePlaylistSortPreference(
+                    playlistId = playlistId,
+                    sortType = newSortType.name,
+                    descending = newSortDescending,
+                )
+            }
+        }
+
+        private val _viewCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
+        val viewCounts = _viewCounts.asStateFlow()
+
+        private val viewCountsMutex = Mutex()
+        private val viewCountsInFlight = mutableSetOf<String>()
+        private val viewCountsSemaphore = Semaphore(permits = 4)
+
+        private val _playlistSuggestions = MutableStateFlow<PlaylistSuggestion?>(null)
+        val playlistSuggestions =
+            combine(_playlistSuggestions, playlistSongs) { suggestions, songs ->
+                val songIds = songs.map { it.song.id }.toSet()
+                val filteredItems = suggestions?.items?.filter { it.id !in songIds } ?: emptyList()
+                suggestions?.copy(
+                    items = filteredItems.take(10),
+                )
+            }.stateIn(viewModelScope, SharingStarted.Lazily, null)
+
+        private val _isLoadingSuggestions = MutableStateFlow(false)
+        val isLoadingSuggestions = _isLoadingSuggestions.asStateFlow()
+
+        private val suggestionQueries = MutableStateFlow<List<PlaylistSuggestionQuery>>(emptyList())
+        private val currentSuggestionQueryIndex = MutableStateFlow(0)
+        private val suggestionsCacheTimestamp = MutableStateFlow(0L)
+        private val suggestedSongIds = MutableStateFlow<Set<String>>(emptySet())
+
+        private val suggestionLoadMutex = Mutex()
+
+        private var currentSuggestionPage: PlaylistSuggestionPage? = null
+
+        private val _isRefreshing = MutableStateFlow(false)
+        val isRefreshing = _isRefreshing.asStateFlow()
+
+        private val _coverState = MutableStateFlow<PlaylistCoverState>(PlaylistCoverState.Empty)
+        val coverState = _coverState.asStateFlow()
+
+        private val coverEventChannel = Channel<PlaylistCoverEvent>(Channel.BUFFERED)
+        val coverEvents = coverEventChannel.receiveAsFlow()
+
+        private var coverMutationJob: Job? = null
+
+        init {
+            viewModelScope.launch(Dispatchers.IO) {
+                val sortedSongs =
+                    database
+                        .playlistSongs(playlistId)
+                        .first()
+                        .sortedWith(compareBy({ it.map.position }, { it.map.id }))
+                database.withTransaction {
+                    sortedSongs.forEachIndexed { index, playlistSong ->
+                        if (playlistSong.map.position != index) {
+                            update(playlistSong.map.copy(position = index))
+                        }
+                    }
+                }
+            }
+
+            viewModelScope.launch {
+                playlistSongs.collect { songs ->
+                    prefetchViewCounts(
+                        songs
+                            .asSequence()
+                            .filter { !it.song.song.isLocal }
+                            .map { it.song.id }
+                            .toList(),
+                    )
+                }
+            }
+
+            viewModelScope.launch {
+                combine(playlist, playlistSongs) { playlist, songs ->
+                    Pair(playlist, songs)
+                }.collect { (playlist, songs) ->
+                    playlist?.let {
+                        loadPlaylistSuggestions()
+                    }
+                }
+            }
+
+            viewModelScope.launch {
+                playlistSuggestions.collect { suggestions ->
+                    if (suggestions != null && suggestions.items.isEmpty() && suggestions.hasMore && !_isLoadingSuggestions.value) {
+                        loadMoreSuggestions()
+                    }
+                }
+            }
+        }
+
+        private fun prefetchViewCounts(videoIds: List<String>) {
+            val uniqueIds = videoIds.distinct().filter { it.isNotBlank() }
+            if (uniqueIds.isEmpty()) return
+
+            viewModelScope.launch(Dispatchers.IO) {
+                coroutineScope {
+                    uniqueIds
+                        .map { videoId ->
+                            async {
+                                val shouldFetch =
+                                    viewCountsMutex.withLock {
+                                        if (_viewCounts.value.containsKey(videoId) || viewCountsInFlight.contains(videoId)) {
+                                            false
+                                        } else {
+                                            viewCountsInFlight.add(videoId)
+                                            true
+                                        }
+                                    }
+
+                                if (!shouldFetch) return@async
+
+                                try {
+                                    viewCountsSemaphore.withPermit {
+                                        val count = YouTube.getMediaInfo(videoId).getOrNull()?.viewCount
+                                        if (count != null && count >= 0) {
+                                            _viewCounts.update { current -> current + (videoId to count) }
+                                        }
+                                    }
+                                } finally {
+                                    viewCountsMutex.withLock { viewCountsInFlight.remove(videoId) }
+                                }
+                            }
+                        }.awaitAll()
+                }
+            }
+        }
+
+        fun refresh() {
+            if (_isRefreshing.value) return
+            _isRefreshing.value = true
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val p = playlist.first() ?: return@launch
+                    val browseId = p.playlist.browseId ?: return@launch
+                    syncUtils.syncPlaylistNow(browseId = browseId, playlistId = playlistId)
+                } catch (e: Exception) {
+                    reportException(e)
+                } finally {
+                    _isRefreshing.value = false
+                }
+            }
+        }
+
+        fun updateCover(uri: Uri) {
+            mutateCover { updatePlaylistCover(playlistId, uri) }
+        }
+
+        fun removeCover() {
+            mutateCover { removePlaylistCover(playlistId) }
+        }
+
+        private fun mutateCover(mutation: suspend () -> Unit) {
+            if (coverMutationJob?.isActive == true) return
+            coverMutationJob =
+                viewModelScope.launch(Dispatchers.IO) {
+                    _coverState.value = PlaylistCoverState.Loading
+                    try {
+                        mutation()
+                        _coverState.value = PlaylistCoverState.Success
+                        coverEventChannel.send(PlaylistCoverEvent.ShowMessage(R.string.playlist_cover_updated))
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (throwable: Throwable) {
+                        reportException(throwable)
+                        _coverState.value = PlaylistCoverState.Error(R.string.playlist_cover_update_failed)
+                        coverEventChannel.send(PlaylistCoverEvent.ShowMessage(R.string.playlist_cover_update_failed))
+                    }
+                }
+        }
+
+        fun loadPlaylistSuggestions(forceReset: Boolean = false) {
+            viewModelScope.launch {
+                suggestionLoadMutex.withLock {
+                    val currentSongs = playlistSongs.first()
+                    val currentPlaylist = playlist.first() ?: return@withLock
+
+                    val shouldRefresh =
+                        forceReset ||
+                            PlaylistSuggestionQueryBuilder.shouldRefreshSuggestions(
+                                suggestionsCacheTimestamp.value,
+                            )
+
+                    if (!shouldRefresh && _playlistSuggestions.value != null) {
+                        return@withLock
+                    }
+
+                    _isLoadingSuggestions.value = true
+
+                    _playlistSuggestions.value = null
+                    currentSuggestionQueryIndex.value = 0
+
+                    suggestedSongIds.value = suggestedSongIds.value + currentSongs.map { it.song.id }.toSet()
+                    suggestionsCacheTimestamp.value = 0L
+                    currentSuggestionPage = null
+
+                    try {
+                        val suggestionSource =
+                            context.dataStore.data
+                                .first()[PlaylistSuggestionSourceKey]
+                                .toEnum(PlaylistSuggestionSource.BOTH)
+
+                        val queries =
+                            PlaylistSuggestionQueryBuilder.buildSuggestionQueries(
+                                playlistName = currentPlaylist.playlist.name,
+                                playlistSongs = currentSongs,
+                                suggestionSource = suggestionSource,
+                            )
+                        suggestionQueries.value = queries
+                        suggestionsCacheTimestamp.value = System.currentTimeMillis()
+
+                        if (queries.isEmpty()) {
+                            _playlistSuggestions.value =
+                                PlaylistSuggestion(
+                                    items = emptyList(),
+                                    continuation = null,
+                                    currentQueryIndex = 0,
+                                    totalQueries = 0,
+                                    query = "",
+                                    hasMore = false,
+                                )
+                            return@withLock
+                        }
+
+                        loadNextSuggestionPage()
+                    } catch (e: Exception) {
+                        reportException(e)
+                        if (_playlistSuggestions.value == null) {
+                            _playlistSuggestions.value =
+                                PlaylistSuggestion(
+                                    items = emptyList(),
+                                    continuation = null,
+                                    currentQueryIndex = 0,
+                                    totalQueries = 0,
+                                    query = "",
+                                    hasMore = false,
+                                )
+                        }
+                    } finally {
+                        _isLoadingSuggestions.value = false
+                    }
+                }
+            }
+        }
+
+        fun loadMoreSuggestions() {
+            viewModelScope.launch {
+                suggestionLoadMutex.withLock {
+                    if (_isLoadingSuggestions.value) return@withLock
+
+                    val currentSuggestions = _playlistSuggestions.value ?: return@withLock
+                    val queries = suggestionQueries.value
+
+                    try {
+
+                        currentSuggestionPage?.continuation?.let { continuation ->
+                            _isLoadingSuggestions.value = true
+                            loadMoreFromContinuation(continuation)
+                            return@withLock
+                        }
+
+                        val nextIndex = currentSuggestionQueryIndex.value + 1
+                        if (nextIndex < queries.size) {
+                            _isLoadingSuggestions.value = true
+                            currentSuggestionQueryIndex.value = nextIndex
+                            loadNextSuggestionPage()
+                        } else {
+
+                            _playlistSuggestions.value = currentSuggestions.copy(hasMore = false)
+                        }
+                    } finally {
+                        _isLoadingSuggestions.value = false
+                    }
+                }
+            }
+        }
+
+        fun resetAndLoadPlaylistSuggestions() {
+            loadPlaylistSuggestions(forceReset = true)
+        }
+
+        fun markSuggestionAsAdded(songId: String) {
+            suggestedSongIds.value = suggestedSongIds.value + songId
+
+            val currentSuggestions = _playlistSuggestions.value
+            if (currentSuggestions != null) {
+                _playlistSuggestions.value =
+                    currentSuggestions.copy(
+                        items = currentSuggestions.items.filter { it.id != songId },
+                    )
+            }
+        }
+
+        suspend fun addSongToPlaylist(
+            song: moe.kongamusic.innertube.models.SongItem,
+            browseId: String?,
+        ): Boolean {
+            return try {
+                val playlistSetVideoId =
+                    if (browseId != null) {
+                        withContext(Dispatchers.IO) {
+                            YouTube.addToPlaylist(browseId, song.id).getOrThrow()
+                        }
+                    } else {
+                        null
+                    }
+
+                val added =
+                    database.withTransaction {
+
+                        val p = getPlaylistById(playlistId)
+                        if (p == null) {
+
+                            if (playlistId == moe.kongamusic.db.entities.PlaylistEntity.LIKED_PLAYLIST_ID) {
+                                insert(
+                                    moe.kongamusic.db.entities.PlaylistEntity(
+                                        id = playlistId,
+                                        name = context.getString(R.string.liked_songs),
+                                        isEditable = false,
+                                        bookmarkedAt = java.time.LocalDateTime.now(),
+                                    ),
+                                )
+                            } else {
+                                return@withTransaction false
+                            }
+                        }
+
+                        insert(song.toMediaMetadata())
+
+                        val maxPosition = maxPlaylistSongPosition(playlistId)
+                        val position = (maxPosition ?: -1) + 1
+                        insert(
+                            moe.kongamusic.db.entities.PlaylistSongMap(
+                                songId = song.id,
+                                playlistId = playlistId,
+                                position = position,
+                                setVideoId = playlistSetVideoId,
+                            ),
+                        )
+                        true
+                    }
+
+                if (!added) {
+                    return false
+                }
+
+                suggestedSongIds.value = suggestedSongIds.value + song.id
+
+                true
+            } catch (e: Exception) {
+                reportException(e)
+                false
+            }
+        }
+
+        private suspend fun loadNextSuggestionPage() {
+            val queries = suggestionQueries.value
+            val currentIndex = currentSuggestionQueryIndex.value
+
+            if (currentIndex >= queries.size) return
+
+            val currentQuery = queries[currentIndex]
+
+            try {
+                val searchFilter = YouTube.SearchFilter.FILTER_SONG
+
+                val result =
+                    YouTube
+                        .search(
+                            query = currentQuery.query,
+                            filter = searchFilter,
+                            useAccountContext = false,
+                        ).getOrNull()
+                        ?: return
+
+                val filteredItems = filterSuggestionItems(result.items).shuffled().take(10)
+
+                if (filteredItems.isEmpty() && (result.continuation != null || currentIndex < queries.size - 1)) {
+                    result.continuation?.let { continuationValue ->
+                        loadMoreFromContinuation(continuationValue)
+                    } ?: run {
+                        currentSuggestionQueryIndex.value = currentIndex + 1
+                        loadNextSuggestionPage()
+                    }
+                    return
+                }
+
+                currentSuggestionPage =
+                    PlaylistSuggestionPage(
+                        items = filteredItems,
+                        continuation = result.continuation,
+                    )
+
+                val newIds = filteredItems.map { item: YTItem -> item.id }.toSet()
+                suggestedSongIds.value = suggestedSongIds.value + newIds
+
+                val currentSuggestions = _playlistSuggestions.value
+                val newSuggestions =
+                    if (currentSuggestions == null) {
+                        filteredItems
+                    } else {
+                        currentSuggestions.items + filteredItems
+                    }
+
+                _playlistSuggestions.value =
+                    PlaylistSuggestion(
+                        items = newSuggestions,
+                        continuation = result.continuation,
+                        currentQueryIndex = currentIndex,
+                        totalQueries = queries.size,
+                        query = currentQuery.query,
+                        hasMore = result.continuation != null || currentIndex < queries.size - 1,
+                    )
+            } catch (e: Exception) {
+                reportException(e)
+            }
+        }
+
+        private suspend fun loadMoreFromContinuation(continuation: String) {
+            try {
+                val result =
+                    YouTube
+                        .searchContinuation(
+                            continuation = continuation,
+                            useAccountContext = false,
+                        ).getOrNull()
+                        ?: return
+
+                val filteredItems = filterSuggestionItems(result.items).shuffled().take(10)
+
+                if (filteredItems.isEmpty()) {
+                    val currentSuggestions = _playlistSuggestions.value
+                    val queries = suggestionQueries.value
+                    val currentIndex = currentSuggestionQueryIndex.value
+
+                    result.continuation?.let { continuationValue ->
+                        loadMoreFromContinuation(continuationValue)
+                    } ?: run {
+                        if (currentIndex < queries.size - 1) {
+                            currentSuggestionQueryIndex.value = currentIndex + 1
+                            loadNextSuggestionPage()
+                        } else {
+
+                            if (currentSuggestions != null) {
+                                _playlistSuggestions.value = currentSuggestions.copy(hasMore = false)
+                            }
+                        }
+                    }
+                    return
+                }
+
+                currentSuggestionPage =
+                    PlaylistSuggestionPage(
+                        items = filteredItems,
+                        continuation = result.continuation,
+                    )
+
+                val moreIds = filteredItems.map { item: YTItem -> item.id }.toSet()
+                suggestedSongIds.value = suggestedSongIds.value + moreIds
+
+                val currentSuggestions = _playlistSuggestions.value
+                if (currentSuggestions == null) {
+                    _playlistSuggestions.value =
+                        PlaylistSuggestion(
+                            items = filteredItems,
+                            continuation = result.continuation,
+                            currentQueryIndex = currentSuggestionQueryIndex.value,
+                            totalQueries = suggestionQueries.value.size,
+                            query = suggestionQueries.value.getOrNull(currentSuggestionQueryIndex.value)?.query ?: "",
+                            hasMore = result.continuation != null || currentSuggestionQueryIndex.value < suggestionQueries.value.size - 1,
+                        )
+                } else {
+                    _playlistSuggestions.value =
+                        currentSuggestions.copy(
+                            items = currentSuggestions.items + filteredItems,
+                            continuation = result.continuation,
+                            hasMore = result.continuation != null || currentSuggestions.currentQueryIndex < suggestionQueries.value.size - 1,
+                        )
+                }
+            } catch (e: Exception) {
+                reportException(e)
+            }
+        }
+
+        private suspend fun filterSuggestionItems(items: List<YTItem>): List<YTItem> {
+            val hideExplicit = context.dataStore.data.first()[HideExplicitKey] ?: false
+            val hideVideos = context.dataStore.data.first()[HideVideoKey] ?: false
+
+            var filteredItems =
+                items
+                    .filter { item -> item.id !in suggestedSongIds.value }
+                    .filterBlockedArtists(database.getBlockedArtistIds().toSet())
+
+            if (hideExplicit) {
+                filteredItems = filteredItems.filterExplicit()
+            }
+
+            if (hideVideos) {
+                filteredItems = filteredItems.filterVideo()
+            }
+            return filteredItems
+        }
+    }
+
+@Immutable
+sealed interface PlaylistCoverState {
+    data object Loading : PlaylistCoverState
+
+    data object Success : PlaylistCoverState
+
+    data object Empty : PlaylistCoverState
+
+    data class Error(
+        @StringRes val messageRes: Int,
+    ) : PlaylistCoverState
+}
+
+sealed interface PlaylistCoverEvent {
+    data class ShowMessage(
+        @StringRes val messageRes: Int,
+    ) : PlaylistCoverEvent
+}

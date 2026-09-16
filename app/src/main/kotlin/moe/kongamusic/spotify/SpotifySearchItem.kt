@@ -1,0 +1,51 @@
+/*
+ * kongamusic (2026)
+ * © Samk
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
+
+package moe.kongamusic.spotify
+
+import moe.kongamusic.spotify.models.SpotifyAlbum
+import moe.kongamusic.spotify.models.SpotifyArtist
+import moe.kongamusic.spotify.models.SpotifyPlaylist
+import moe.kongamusic.spotify.models.SpotifySearchResult
+import moe.kongamusic.spotify.models.SpotifyTrack
+
+sealed interface SpotifySearchItem {
+    val id: String
+    val title: String
+    val key: String
+
+    data class Track(val value: SpotifyTrack) : SpotifySearchItem {
+        override val id: String get() = value.id
+        override val title: String get() = value.name
+        override val key: String get() = "track:$id"
+    }
+
+    data class Album(val value: SpotifyAlbum) : SpotifySearchItem {
+        override val id: String get() = value.id
+        override val title: String get() = value.name
+        override val key: String get() = "album:$id"
+    }
+
+    data class Artist(val value: SpotifyArtist) : SpotifySearchItem {
+        override val id: String get() = value.id
+        override val title: String get() = value.name
+        override val key: String get() = "artist:$id"
+    }
+
+    data class Playlist(val value: SpotifyPlaylist) : SpotifySearchItem {
+        override val id: String get() = value.id
+        override val title: String get() = value.name
+        override val key: String get() = "playlist:$id"
+    }
+}
+
+fun SpotifySearchResult.toSearchItems(): List<SpotifySearchItem> = buildList {
+    tracks?.items.orEmpty().forEach { if (it.id.isNotBlank()) add(SpotifySearchItem.Track(it)) }
+    albums?.items.orEmpty().forEach { if (it.id.isNotBlank()) add(SpotifySearchItem.Album(it)) }
+    artists?.items.orEmpty().forEach { if (it.id.isNotBlank()) add(SpotifySearchItem.Artist(it)) }
+    playlists?.items.orEmpty().forEach { if (it.id.isNotBlank()) add(SpotifySearchItem.Playlist(it)) }
+}.distinctBy(SpotifySearchItem::key)

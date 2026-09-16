@@ -1,0 +1,479 @@
+/*
+ * kongamusic (2026)
+ * © Samk
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
+
+@file:OptIn(ExperimentalMaterial3Api::class)
+
+package moe.kongamusic.ui.screens.settings
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.navigation.NavController
+import moe.kongamusic.LocalPlayerAwareWindowInsets
+import moe.kongamusic.R
+import moe.kongamusic.constants.AutoDownloadOnLikeKey
+import moe.kongamusic.constants.DownloadSource
+import moe.kongamusic.constants.DownloadSourceConfig
+import moe.kongamusic.constants.DownloadSourceOrderKey
+import moe.kongamusic.constants.ExternalDownloaderEnabledKey
+import moe.kongamusic.constants.ExternalDownloaderPackageKey
+import moe.kongamusic.applemusic.AppleMusicAudioProvider
+import moe.kongamusic.ui.component.ActionPromptDialog
+import moe.kongamusic.ui.component.DefaultDialog
+import moe.kongamusic.ui.component.FrostedHeaderPill
+import moe.kongamusic.ui.component.FrostedHeaderPill
+import moe.kongamusic.ui.component.IconButton
+import moe.kongamusic.ui.component.PreferenceEntry
+import moe.kongamusic.ui.component.PreferenceGroup
+import moe.kongamusic.ui.component.SwitchPreference
+import moe.kongamusic.ui.component.TextFieldDialog
+import moe.kongamusic.ui.utils.backToMain
+import moe.kongamusic.utils.PoolAccountManager
+import moe.kongamusic.utils.rememberPreference
+import moe.kongamusic.viewmodels.StorageSettingsViewModel
+import androidx.compose.foundation.layout.asPaddingValues
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
+import moe.kongamusic.ui.screens.ScreenHeaderHaze
+import moe.kongamusic.ui.screens.rememberScreenHeaderHaze
+import moe.kongamusic.LocalStableSystemBarsTopPadding
+import dev.chrisbanes.haze.hazeSource
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+
+@Composable
+fun DownloadsSettings(
+    navController: NavController,
+    scrollTo: String? = null,
+    viewModel: StorageSettingsViewModel = hiltViewModel(),
+) {
+    val context = LocalContext.current
+    val (autoDownloadOnLike, onAutoDownloadOnLikeChange) =
+        rememberPreference(AutoDownloadOnLikeKey, defaultValue = false)
+
+    val (downloadSourceOrderRaw, onDownloadSourceOrderChange) =
+        rememberPreference(DownloadSourceOrderKey, defaultValue = "")
+    val downloadSourceOrder =
+        remember(downloadSourceOrderRaw) {
+            DownloadSourceConfig.parseOrder(downloadSourceOrderRaw)
+        }
+    val poolEnabled = remember { PoolAccountManager.isEnabled }
+    val (externalDownloaderEnabled, onExternalDownloaderEnabledChange) =
+        rememberPreference(ExternalDownloaderEnabledKey, defaultValue = false)
+    val (externalDownloaderPackage, onExternalDownloaderPackageChange) =
+        rememberPreference(ExternalDownloaderPackageKey, defaultValue = "")
+
+    var showSourceOrderDialog by remember { mutableStateOf(false) }
+    var showExternalDownloaderPackageDialog by remember { mutableStateOf(false) }
+    var clearDownloads by remember { mutableStateOf(false) }
+
+    if (showSourceOrderDialog) {
+        DownloadSourceOrderDialog(
+            initialOrder = downloadSourceOrder,
+            poolEnabled = poolEnabled,
+            onDismiss = { showSourceOrderDialog = false },
+            onConfirm = { newOrder ->
+                onDownloadSourceOrderChange(DownloadSourceConfig.serialize(newOrder))
+                showSourceOrderDialog = false
+            },
+        )
+    }
+
+    if (showExternalDownloaderPackageDialog) {
+        TextFieldDialog(
+            initialTextFieldValue =
+                androidx.compose.ui.text.input
+                    .TextFieldValue(externalDownloaderPackage),
+            onDone = { pkg ->
+                onExternalDownloaderPackageChange(pkg)
+                showExternalDownloaderPackageDialog = false
+            },
+            onDismiss = { showExternalDownloaderPackageDialog = false },
+            singleLine = true,
+            maxLines = 1,
+        )
+    }
+
+    if (clearDownloads) {
+        ActionPromptDialog(
+            title = stringResource(R.string.clear_all_downloads),
+            onDismiss = { clearDownloads = false },
+            onConfirm = {
+                viewModel.clearDownloads()
+                clearDownloads = false
+            },
+            onCancel = { clearDownloads = false },
+            content = {
+                Text(text = stringResource(R.string.clear_downloads_dialog))
+            },
+        )
+    }
+
+    val headerHaze = rememberScreenHeaderHaze()
+    val systemBarsTopPadding = LocalStableSystemBarsTopPadding.current
+
+    Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        topBar = {
+            TopAppBar(
+                title = {},
+                navigationIcon = {
+                    FrostedHeaderPill(plain = true) {
+                        IconButton(
+                            onClick = navController::navigateUp,
+                            onLongClick = navController::backToMain,
+                        ) {
+                            Icon(
+                                painterResource(R.drawable.arrow_back),
+                                contentDescription = null,
+                            )
+                        }
+                        Text(
+                            text = stringResource(R.string.downloads),
+                            color = MaterialTheme.colorScheme.onBackground,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            modifier = Modifier.padding(end = 4.dp),
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent,
+                ),
+            )
+        },
+    ) { innerPadding ->
+        Box(modifier = Modifier.fillMaxSize()) {
+
+        val playerAwareBottomPadding =
+            LocalPlayerAwareWindowInsets.current
+                .only(WindowInsetsSides.Bottom)
+                .asPaddingValues()
+                .calculateBottomPadding()
+        val topPadding = innerPadding.calculateTopPadding()
+        val scrollState = rememberScrollState()
+        val positions = rememberPreferencePositions()
+
+        androidx.compose.runtime.LaunchedEffect(scrollTo) { positions.scrollToKey(scrollTo, scrollState) }
+
+        Column(
+            Modifier
+                .windowInsetsPadding(LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Horizontal))
+
+                .then(positions.containerModifier())
+                .verticalScroll(scrollState)
+                .hazeSource(headerHaze)
+                .padding(top = topPadding)
+                .padding(bottom = playerAwareBottomPadding + SettingsDimensions.ScreenBottomPadding),
+        ) {
+            PreferenceGroup(
+                modifier = positions.modifierFor("downloaded_songs"),
+                title = stringResource(R.string.downloaded_songs),
+            ) {
+                item {
+                    PreferenceEntry(
+                        modifier = positions.modifierFor("clear_all_downloads"),
+                        title = { Text(stringResource(R.string.clear_all_downloads)) },
+                        description = stringResource(R.string.clear_downloads_dialog),
+                        icon = {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_download),
+                                contentDescription = null,
+                            )
+                        },
+                        onClick = { clearDownloads = true },
+                    )
+                }
+                item {
+                    PreferenceEntry(
+                        modifier = positions.modifierFor("export_downloaded_songs"),
+                        title = { Text(stringResource(R.string.export_downloaded_songs)) },
+                        description = stringResource(R.string.export_downloaded_songs_description),
+                        icon = {
+                            Icon(
+                                painter = painterResource(R.drawable.send),
+                                contentDescription = null,
+                            )
+                        },
+                        onClick = { navController.navigate("settings/storage/export_songs") },
+                    )
+                }
+            }
+
+            PreferenceGroup(
+                modifier = positions.modifierFor("auto_download_like"),
+                title = stringResource(R.string.downloads),
+            ) {
+                item {
+                    SwitchPreference(
+                        title = { Text(stringResource(R.string.auto_download_on_like)) },
+                        description = stringResource(R.string.auto_download_on_like_desc),
+                        icon = { Icon(painterResource(R.drawable.download), null) },
+                        checked = autoDownloadOnLike,
+                        onCheckedChange = onAutoDownloadOnLikeChange,
+                    )
+                }
+
+                item {
+
+                    val fallbackAuto = stringResource(R.string.download_source_auto)
+                    val description =
+                        remember(downloadSourceOrder, fallbackAuto) {
+                            downloadSourceOrder
+                                .joinToString(" → ") { source -> source.displayName() }
+                                .ifEmpty { fallbackAuto }
+                        }
+                    PreferenceEntry(
+                        modifier = positions.modifierFor("download_source"),
+                        title = { Text(stringResource(R.string.download_source_title)) },
+                        description = description,
+                        icon = { Icon(painterResource(R.drawable.download), null) },
+                        onClick = { showSourceOrderDialog = true },
+                    )
+                }
+            }
+
+            PreferenceGroup(
+                modifier = positions.modifierFor("external_downloader"),
+                title = stringResource(R.string.external_downloader),
+            ) {
+                item {
+                    SwitchPreference(
+                        title = { Text(stringResource(R.string.external_downloader)) },
+                        description = stringResource(R.string.external_downloader_desc),
+                        icon = { Icon(painterResource(R.drawable.download), null) },
+                        checked = externalDownloaderEnabled,
+                        onCheckedChange = onExternalDownloaderEnabledChange,
+                    )
+                }
+
+                item {
+                    PreferenceEntry(
+                        modifier = positions.modifierFor("external_downloader_package"),
+                        title = { Text(stringResource(R.string.external_downloader_package)) },
+                        description = externalDownloaderPackage.ifEmpty { stringResource(R.string.external_downloader_package_desc) },
+                        icon = { Icon(painterResource(R.drawable.integration), null) },
+                        onClick = { showExternalDownloaderPackageDialog = true },
+                        isEnabled = externalDownloaderEnabled,
+                    )
+                }
+            }
+        }
+
+        ScreenHeaderHaze(
+            hazeState = headerHaze,
+            systemBarsTopPadding = systemBarsTopPadding,
+        )
+        }
+}
+}
+
+@Composable
+private fun DownloadSourceOrderDialog(
+    initialOrder: List<DownloadSource>,
+    poolEnabled: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (List<DownloadSource>) -> Unit,
+) {
+    val context = LocalContext.current
+    val sources = remember { mutableStateListOf(*initialOrder.toTypedArray()) }
+    val lazyListState = rememberLazyListState()
+    val reorderableState =
+        rememberReorderableLazyListState(lazyListState) { from, to ->
+            val item = sources.removeAt(from.index)
+            sources.add(to.index, item)
+        }
+
+    val appleSignedIn = AppleMusicAudioProvider.mediaUserToken() != null
+
+    DefaultDialog(
+        onDismiss = onDismiss,
+        buttons = {
+            TextButton(
+                onClick = onDismiss,
+                shapes = ButtonDefaults.shapes(),
+            ) {
+                Text(stringResource(android.R.string.cancel))
+            }
+            Spacer(Modifier.weight(1f))
+            TextButton(
+                onClick = { onConfirm(sources.toList()) },
+                shapes = ButtonDefaults.shapes(),
+            ) {
+                Text(stringResource(android.R.string.ok))
+            }
+        },
+    ) {
+        Column(modifier = Modifier.padding(top = 4.dp)) {
+            Text(
+                text = stringResource(R.string.set_source_priority),
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
+            LazyColumn(
+                state = lazyListState,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 440.dp),
+            ) {
+                itemsIndexed(sources, key = { _, item -> item.name }) { index, source ->
+                    ReorderableItem(reorderableState, key = source.name) {
+                        val isFirst = index == 0
+                        val requiresPool = source in DownloadSourceConfig.REQUIRES_POOL
+                        val available = !requiresPool || poolEnabled
+                        val containerColor =
+                            if (isFirst) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surfaceContainerHigh
+                            }
+                        val contentColor =
+                            if (isFirst) {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            }
+
+                        Row(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = if (index < sources.size - 1) 4.dp else 0.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(containerColor)
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Text(
+                                text = "${index + 1}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = contentColor.copy(alpha = 0.7f),
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Icon(
+                                painter = painterResource(source.iconRes()),
+                                contentDescription = null,
+                                tint = contentColor,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = source.displayName(context),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = contentColor,
+                                )
+                                if (!available) {
+                                    Text(
+                                        text = stringResource(R.string.download_source_requires_pool),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = contentColor.copy(alpha = 0.7f),
+                                    )
+                                }
+                                if (source == DownloadSource.APPLE && !appleSignedIn) {
+                                    Text(
+                                        text = stringResource(R.string.download_source_apple_music_hint),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = contentColor.copy(alpha = 0.7f),
+                                    )
+                                }
+                            }
+                            Icon(
+                                painter = painterResource(R.drawable.drag_handle),
+                                contentDescription = null,
+                                tint = contentColor.copy(alpha = 0.6f),
+                                modifier =
+                                    Modifier
+                                        .size(20.dp)
+                                        .draggableHandle(),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun DownloadSource.displayName(context: android.content.Context): String =
+    when (this) {
+        DownloadSource.AUTO -> context.getString(R.string.download_source_auto)
+        DownloadSource.QOBUZ -> context.getString(R.string.download_source_qobuz)
+        DownloadSource.QOBUZ_BACKUP -> context.getString(R.string.source_qobuz_backup)
+        DownloadSource.TIDAL -> context.getString(R.string.download_source_tidal)
+        DownloadSource.APPLE -> context.getString(R.string.download_source_apple_music)
+        DownloadSource.DEEZER -> context.getString(R.string.download_source_deezer)
+        DownloadSource.JIOSAAVN -> context.getString(R.string.download_source_jiosaavn)
+        DownloadSource.YOUTUBE_MUSIC -> context.getString(R.string.download_source_youtube_music)
+    }
+
+private fun DownloadSource.displayName(): String =
+    when (this) {
+        DownloadSource.AUTO -> "Auto"
+        DownloadSource.QOBUZ -> "Qobuz"
+        DownloadSource.QOBUZ_BACKUP -> "Qobuz Backup"
+        DownloadSource.TIDAL -> "Tidal"
+        DownloadSource.APPLE -> "Apple Music"
+        DownloadSource.DEEZER -> "Deezer"
+        DownloadSource.JIOSAAVN -> "JioSaavn"
+        DownloadSource.YOUTUBE_MUSIC -> "YouTube Music"
+    }
+
+private fun DownloadSource.iconRes(): Int =
+    when (this) {
+        DownloadSource.AUTO -> R.drawable.download
+        DownloadSource.QOBUZ -> R.drawable.provider_qobuz
+        DownloadSource.QOBUZ_BACKUP -> R.drawable.provider_qobuz
+        DownloadSource.TIDAL -> R.drawable.provider_tidal
+        DownloadSource.APPLE -> R.drawable.provider_apple
+        DownloadSource.DEEZER -> R.drawable.provider_deezer
+        DownloadSource.JIOSAAVN -> R.drawable.provider_jiosaavn
+        DownloadSource.YOUTUBE_MUSIC -> R.drawable.play
+    }
