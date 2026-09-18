@@ -15,6 +15,8 @@ import moe.kongamusic.innertube.models.ArtistItem
 import moe.kongamusic.innertube.models.PlaylistItem
 import moe.kongamusic.innertube.models.SongItem
 import moe.kongamusic.innertube.models.YTItem
+import moe.kongamusic.innertube.models.EpisodeItem
+import moe.kongamusic.innertube.models.PodcastItem
 import javax.inject.Inject
 
 class ObserveAiContentFilterUseCase
@@ -97,6 +99,14 @@ class FilterAiContentUseCase
 
                 is PlaylistItem -> {
                     author?.keys().orEmpty()
+                }
+
+                is PodcastItem -> {
+                    author?.keys().orEmpty()
+                }
+
+                is EpisodeItem -> {
+                    podcast?.keys().orEmpty()
                 }
 
                 is ArtistItem -> {

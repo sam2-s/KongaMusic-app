@@ -117,6 +117,7 @@ import moe.kongamusic.ui.utils.sendRemoveDownloads
 import moe.kongamusic.ui.utils.sendPauseRunningDownloads
 import moe.kongamusic.ui.utils.sendResumePausedDownloads
 import moe.kongamusic.utils.makeTimeString
+import moe.kongamusic.constants.AlbumCanvasEnabledKey
 import dev.chrisbanes.haze.hazeSource
 import moe.kongamusic.ui.screens.ScreenHeaderHaze
 import moe.kongamusic.ui.screens.rememberScreenHeaderHaze
@@ -132,6 +133,8 @@ fun SpotifyPlaylistScreen(
     viewModel: SpotifyPlaylistViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val canvasArtwork by viewModel.canvasArtwork.collectAsStateWithLifecycle()
+    val pageCanvasEnabled by rememberPreference(key = AlbumCanvasEnabledKey, defaultValue = true)
     val downloadUtil = LocalDownloadUtil.current
     val downloads by downloadUtil.downloads.collectAsStateWithLifecycle()
     val playerConnection = LocalPlayerConnection.current
@@ -454,6 +457,12 @@ fun SpotifyPlaylistScreen(
                             isAdded = false,
                             addContentDescription = R.string.add_to_library,
                             removeContentDescription = R.string.remove_from_library,
+                            canvasPrimaryUrl =
+                                (canvasArtwork?.animated ?: canvasArtwork?.videoUrl)
+                                    ?.takeIf { pageCanvasEnabled },
+                            canvasFallbackUrl = canvasArtwork?.videoUrl?.takeIf { pageCanvasEnabled },
+                            canvasIsPlaying = true,
+                            canvasVisible = !lyricsFullScreen,
                             onShuffle =
                                 if (tracks.isNotEmpty()) {
                                     { playPlaylist(shuffled = true) }

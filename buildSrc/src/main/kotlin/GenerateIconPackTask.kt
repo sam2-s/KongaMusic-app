@@ -20,6 +20,7 @@ import org.gradle.api.provider.SetProperty
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.PathSensitive
@@ -44,6 +45,16 @@ abstract class GenerateIconPackTask : DefaultTask() {
     @get:InputDirectory
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val svgDirectory: DirectoryProperty
+
+    @get:Optional
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val forkMetadataFile: RegularFileProperty
+
+    @get:Optional
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val forkSvgDirectory: DirectoryProperty
 
     @get:Input
     abstract val applicationId: Property<String>
@@ -191,9 +202,17 @@ abstract class GenerateIconPackTask : DefaultTask() {
     }
 
     private fun parseMetadata(): List<*> {
+        val primary = parseMetadataFile(metadataFile.get().asFile)
+        val fork = forkMetadataFile.orNull?.asFile
+        val extra: List<*> =
+            if (fork != null && fork.isFile) parseMetadataFile(fork) else emptyList<Any?>()
+        return primary + extra
+    }
+
+    private fun parseMetadataFile(file: File): List<*> {
         val parsed =
             try {
-                JsonSlurper().parse(metadataFile.get().asFile)
+                JsonSlurper().parse(file)
             } catch (error: Exception) {
                 throw GradleException("Unable to parse IconPack metadata.json.", error)
             }
@@ -209,12 +228,20 @@ abstract class GenerateIconPackTask : DefaultTask() {
             throw GradleException("IconPack Source \"$source\" must be an SVG basename.")
         }
 
-        val root = svgDirectory.get().asFile.canonicalFile
-        val sourceFile = File(root, source).canonicalFile
-        if (sourceFile.parentFile != root || !sourceFile.isFile) {
-            throw GradleException("IconPack Source \"$source\" is missing from ${root.path}.")
+        val roots =
+            buildList {
+                add(svgDirectory.get().asFile.canonicalFile)
+                if (forkSvgDirectory.isPresent) {
+                    add(forkSvgDirectory.get().asFile.canonicalFile)
+                }
+            }
+        roots.forEach { root ->
+            val sourceFile = File(root, source).canonicalFile
+            if (sourceFile.parentFile == root && sourceFile.isFile) return sourceFile
         }
-        return sourceFile
+        throw GradleException(
+            "IconPack Source \"$source\" is missing from ${roots.joinToString { directory -> directory.path }}.",
+        )
     }
 
     private data class RasterizedIcon(

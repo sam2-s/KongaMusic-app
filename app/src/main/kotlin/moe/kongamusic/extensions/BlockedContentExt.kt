@@ -13,6 +13,8 @@ import moe.kongamusic.innertube.models.PlaylistItem
 import moe.kongamusic.innertube.models.SongItem
 import moe.kongamusic.innertube.models.YTItem
 import moe.kongamusic.innertube.pages.BrowseResult
+import moe.kongamusic.innertube.models.EpisodeItem
+import moe.kongamusic.innertube.models.PodcastItem
 
 fun <T : YTItem> List<T>.filterBlockedArtists(blockedArtistIds: Set<String>): List<T> {
     if (blockedArtistIds.isEmpty()) return this
@@ -23,6 +25,8 @@ fun <T : YTItem> List<T>.filterBlockedArtists(blockedArtistIds: Set<String>): Li
             is SongItem -> item.artists.none { it.id in blockedArtistIds }
             is AlbumItem -> item.artists.orEmpty().none { it.id in blockedArtistIds }
             is PlaylistItem -> item.author?.id !in blockedArtistIds
+            is PodcastItem -> item.author?.id !in blockedArtistIds
+            is EpisodeItem -> item.podcast?.id !in blockedArtistIds
         }
     }
 }

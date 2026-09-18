@@ -104,11 +104,11 @@
 
 ## Queue Persistence Rules
 # Keep queue-related classes to prevent serialization issues in release builds
--keep class moe.rukamori.archivetune.models.PersistQueue { *; }
--keep class moe.rukamori.archivetune.models.PersistPlayerState { *; }
--keep class moe.rukamori.archivetune.models.QueueData { *; }
--keep class moe.rukamori.archivetune.models.QueueType { *; }
--keep class moe.rukamori.archivetune.playback.queues.** { *; }
+-keep class moe.kongamusic.models.PersistQueue { *; }
+-keep class moe.kongamusic.models.PersistPlayerState { *; }
+-keep class moe.kongamusic.models.QueueData { *; }
+-keep class moe.kongamusic.models.QueueType { *; }
+-keep class moe.kongamusic.playback.queues.** { *; }
 
 # Java serialization writes the CLASS NAME and the FIELD NAMES into the stream, so R8 renaming
 # either of them breaks reading a file written by an earlier build. That is what produced
@@ -128,8 +128,8 @@
 # — two unrelated exception types horizontally merged into one class. The app died on launch.
 #
 # Only this app's models are ever written with Java serialization, so only they need the rule.
--keepnames class moe.rukamori.archivetune.** implements java.io.Serializable
--keepclassmembers class moe.rukamori.archivetune.** implements java.io.Serializable {
+-keepnames class moe.kongamusic.** implements java.io.Serializable
+-keepclassmembers class moe.kongamusic.** implements java.io.Serializable {
     static final long serialVersionUID;
     private static final java.io.ObjectStreamField[] serialPersistentFields;
     !static !transient <fields>;

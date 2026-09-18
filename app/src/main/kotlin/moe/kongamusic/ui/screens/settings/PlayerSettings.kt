@@ -108,6 +108,7 @@ import moe.kongamusic.ui.component.TextFieldDialog
 import moe.kongamusic.ui.utils.backToMain
 import moe.kongamusic.utils.CanvasResolverEndpoints
 import moe.kongamusic.utils.rememberPreference
+import moe.kongamusic.constants.DEFAULT_PRELOAD_SONGS_COUNT
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import kotlin.math.roundToInt
@@ -205,7 +206,7 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
     val (preloadSongsCount, onPreloadSongsCountChange) =
         rememberPreference(
             PreloadSongsCountKey,
-            defaultValue = 0,
+            defaultValue = DEFAULT_PRELOAD_SONGS_COUNT,
         )
 
     val (crossfadeEnabled, onCrossfadeEnabledChange) =

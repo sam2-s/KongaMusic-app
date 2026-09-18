@@ -43,8 +43,8 @@ if (localPropertiesFile.exists()) {
     localProperties.load(localPropertiesFile.inputStream())
 }
 
-val baseVersionName = "15.0.1"
-val baseVersionCode = 142
+val baseVersionName = "16.0"
+val baseVersionCode = 1600
 
 val discordApplicationId =
     (
@@ -227,11 +227,16 @@ android {
             dimension = "device"
             buildConfigField("String", "DEVICE", "\"tv\"")
         }
+        create("automotive") {
+            dimension = "device"
+            minSdk = 28
+            buildConfigField("String", "DEVICE", "\"automotive\"")
+        }
         create("universal") {
             dimension = "abi"
 
             ndk {
-                abiFilters += listOf("arm64-v8a", "x86_64")
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a")
             }
             buildConfigField("String", "ARCHITECTURE", "\"universal\"")
         }
@@ -435,6 +440,7 @@ dependencies {
     implementation(libs.media3)
     implementation("androidx.media3:media3-exoplayer-hls:${libs.versions.media3.get()}")
     implementation(libs.media3.session)
+    implementation(libs.car.app)
     implementation(libs.media3.okhttp)
     implementation("androidx.media3:media3-ui:${libs.versions.media3.get()}")
     implementation("androidx.media3:media3-ui-compose:${libs.versions.media3.get()}")
@@ -511,6 +517,7 @@ dependencies {
 
 androidComponents {
     onVariants(selector().all()) { variant ->
+        if ("automotive" in variant.name) return@onVariants
         val capitalizedVariantName =
             variant.name.replaceFirstChar { character ->
                 if (character.isLowerCase()) character.titlecase() else character.toString()
@@ -519,6 +526,8 @@ androidComponents {
             tasks.register<GenerateIconPackTask>("generate${capitalizedVariantName}IconPack") {
                 metadataFile.set(rootProject.layout.projectDirectory.file("IconPack/metadata.json"))
                 svgDirectory.set(rootProject.layout.projectDirectory.dir("IconPack/svg"))
+                forkMetadataFile.set(rootProject.layout.projectDirectory.file("forkIconPack/metadata.json"))
+                forkSvgDirectory.set(rootProject.layout.projectDirectory.dir("forkIconPack/svg"))
                 applicationId.set(variant.applicationId)
                 targetActivityClassName.set("moe.kongamusic.MainActivity")
                 slimMode.set((project.findProperty("slimIconPacks") as String?)?.toBoolean() ?: true)

@@ -139,6 +139,8 @@ import moe.kongamusic.utils.joinByBullet
 import moe.kongamusic.utils.makeTimeString
 import moe.kongamusic.utils.rememberPreference
 import moe.kongamusic.utils.reportException
+import moe.kongamusic.innertube.models.EpisodeItem
+import moe.kongamusic.innertube.models.PodcastItem
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 
@@ -1395,6 +1397,10 @@ fun YouTubeListItem(
                     is PlaylistItem -> {
                         joinByBullet(item.author?.name, item.songCountText)
                     }
+
+                    is PodcastItem -> item.author?.name
+
+                    is EpisodeItem -> joinByBullet(item.podcast?.name, item.dateText, item.durationText)
                 },
             badges = badges,
             thumbnailContent = {
@@ -1505,6 +1511,10 @@ fun YouTubeGridItem(
                     is AlbumItem -> joinByBullet(item.artists?.joinToString { it.name }, item.year?.toString())
                     is ArtistItem -> null
                     is PlaylistItem -> joinByBullet(item.author?.name, item.songCountText)
+
+                    is PodcastItem -> item.author?.name
+
+                    is EpisodeItem -> joinByBullet(item.podcast?.name, item.dateText, item.durationText)
                 }
             if (subtitle != null) {
                 Text(

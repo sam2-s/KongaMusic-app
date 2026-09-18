@@ -111,9 +111,14 @@ import moe.kongamusic.ui.screens.settings.StorageSettings
 import moe.kongamusic.ui.screens.settings.DownloadsSettings
 import moe.kongamusic.ui.screens.settings.ThemeCreatorScreen
 import moe.kongamusic.viewmodels.OnlineSearchSort
+import moe.kongamusic.ui.screens.settings.AndroidAutoSettings
+import moe.kongamusic.ui.screens.settings.AmazonSettings
+import moe.kongamusic.ui.screens.settings.AmazonLoginScreen
+import moe.kongamusic.ui.screens.settings.AMAZON_LOGIN_ROUTE
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
-
+import moe.kongamusic.ui.screens.podcast.PodcastRoute
+import moe.kongamusic.ui.screens.podcast.PodcastScreen
 @OptIn(ExperimentalMaterial3Api::class)
 fun NavGraphBuilder.navigationBuilder(
     navController: NavHostController,
@@ -294,6 +299,17 @@ fun NavGraphBuilder.navigationBuilder(
             ),
     ) {
         AlbumScreen(navController, scrollBehavior)
+    }
+    composable(
+        route = PodcastRoute,
+        arguments =
+            listOf(
+                navArgument("browseId") {
+                    type = NavType.StringType
+                },
+            ),
+    ) {
+        PodcastScreen(navController)
     }
     composable(
         route = "artist/{artistId}",
@@ -530,6 +546,12 @@ fun NavGraphBuilder.navigationBuilder(
         ExportDownloadedSongsScreen(navController)
     }
     composable(
+        route = "settings/android_auto?scrollTo={scrollTo}",
+        arguments = listOf(navArgument("scrollTo") { type = NavType.StringType; nullable = true; defaultValue = null }),
+    ) {
+        AndroidAutoSettings(navController, scrollTo = it.savedStateHandle["scrollTo"])
+    }
+    composable(
         route = "settings/downloads?scrollTo={scrollTo}",
         arguments = listOf(navArgument("scrollTo") { type = NavType.StringType; nullable = true; defaultValue = null }),
     ) {
@@ -578,6 +600,12 @@ fun NavGraphBuilder.navigationBuilder(
         DeezerSettings(navController, scrollTo = it.savedStateHandle["scrollTo"])
     }
     composable(
+        route = "settings/amazon?scrollTo={scrollTo}",
+        arguments = listOf(navArgument("scrollTo") { type = NavType.StringType; nullable = true; defaultValue = null }),
+    ) {
+        AmazonSettings(navController, scrollTo = it.savedStateHandle["scrollTo"])
+    }
+    composable(
         route = "settings/jiosaavn?scrollTo={scrollTo}",
         arguments = listOf(navArgument("scrollTo") { type = NavType.StringType; nullable = true; defaultValue = null }),
     ) {
@@ -591,6 +619,9 @@ fun NavGraphBuilder.navigationBuilder(
     }
     composable(DEEZER_LOGIN_ROUTE) {
         DeezerLoginScreen(navController)
+    }
+    composable(AMAZON_LOGIN_ROUTE) {
+        AmazonLoginScreen(navController)
     }
     composable(APPLE_MUSIC_LOGIN_ROUTE) {
         AppleMusicLoginScreen(navController)

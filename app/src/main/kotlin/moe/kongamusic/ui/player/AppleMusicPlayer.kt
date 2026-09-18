@@ -275,7 +275,6 @@ fun AppleMusicPlayerContent(
     currentFormat: FormatEntity?,
     contentBottomPadding: Dp,
     onQueueClick: () -> Unit,
-    onLyricsClick: () -> Unit,
     onSliderValueChange: (Long) -> Unit,
     onSliderValueChangeFinished: () -> Unit,
     lyricsSyncOffset: Int = 0,
@@ -779,22 +778,68 @@ fun AppleMusicPlayerContent(
                             }
                         },
             ) {
-                AppleMusicSharpArtwork(
-                    artworkRequest = artworkRequest,
-                    artworkUrl = artworkUrl,
-                    canvasPrimaryUrl = canvasPrimaryUrl,
-                    canvasFallbackUrl = canvasFallbackUrl,
-                    isPlaying = isPlaying,
-                    fadeBottom = false,
-                    videoId = mediaMetadata.id.takeIf { !it.isLocalMediaId() },
-                    isMusicVideo = mediaMetadata.isMusicVideo,
-                    landscape = true,
-                    artworkCornerRadiusDp = artworkCornerRadiusDp,
+                Box(
                     modifier =
                         Modifier
                             .weight(1f)
                             .fillMaxHeight(),
-                )
+                ) {
+                    AppleMusicSharpArtwork(
+                        artworkRequest = artworkRequest,
+                        artworkUrl = artworkUrl,
+                        canvasPrimaryUrl = canvasPrimaryUrl,
+                        canvasFallbackUrl = canvasFallbackUrl,
+                        isPlaying = isPlaying,
+                        fadeBottom = false,
+                        videoId = mediaMetadata.id.takeIf { !it.isLocalMediaId() },
+                        isMusicVideo = mediaMetadata.isMusicVideo,
+                        landscape = true,
+                        artworkCornerRadiusDp = artworkCornerRadiusDp,
+                        modifier =
+                            Modifier
+                                .fillMaxSize(),
+                    )
+
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = lyricsOpen,
+                        enter = fadeIn(tween(400, easing = FastOutSlowInEasing)),
+                        exit = fadeOut(tween(300, easing = FastOutSlowInEasing)),
+                        modifier = Modifier.matchParentSize(),
+                    ) {
+                        Box(
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = AppleMusicContentPadding - 16.dp),
+                        ) {
+                            if (lyricsContentReady) {
+                                when (lyricsMode) {
+                                    LyricsMode.V2 ->
+                                        LyricsV2(
+                                            sliderPositionProvider = lyricsPosProvider,
+                                            lyricsSyncOffset = lyricsSyncOffset,
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+
+                                    LyricsMode.ENHANCED ->
+                                        LyricsEnhanced(
+                                            sliderPositionProvider = lyricsPosProvider,
+                                            lyricsSyncOffset = lyricsSyncOffset,
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+
+                                    LyricsMode.SPOTIFY ->
+                                        LyricsV2(
+                                            sliderPositionProvider = lyricsPosProvider,
+                                            lyricsSyncOffset = lyricsSyncOffset,
+                                            spotifyStyle = true,
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                }
+                            }
+                        }
+                    }
+                }
                 AnimatedVisibility(
 
                     visible =
@@ -823,7 +868,7 @@ fun AppleMusicPlayerContent(
                         onMoreClick = onMoreClick,
                         onOutputClick = onOutputClick,
                         onQueueClick = onQueueClick,
-                        onLyricsClick = onLyricsClick,
+                        onLyricsClick = toggleLyrics,
                         onSliderValueChange = onControlsSliderValueChange,
                         onSliderValueChangeFinished = onControlsSliderValueChangeFinished,
                         currentFormat = currentFormat,
@@ -1428,6 +1473,10 @@ private fun AppleMusicControlsColumn(
         sliderPosition = sliderPosition,
         duration = duration,
         currentFormat = currentFormat,
+        playerConnection = playerConnection,
+        isPlaying = isPlaying,
+        lyricsVisible = isLyricsActive,
+        onLyricsClick = onLyricsClick,
         onSliderValueChange = onSliderValueChange,
         onSliderValueChangeFinished = onSliderValueChangeFinished,
         onQualityChipClick = onQualityChipClick,
@@ -1862,6 +1911,10 @@ private fun AppleMusicPositionSection(
     sliderPosition: Long?,
     duration: Long,
     currentFormat: FormatEntity?,
+    playerConnection: PlayerConnection,
+    isPlaying: Boolean,
+    lyricsVisible: Boolean,
+    onLyricsClick: () -> Unit,
     onSliderValueChange: (Long) -> Unit,
     onSliderValueChangeFinished: () -> Unit,
     onQualityChipClick: () -> Unit,
@@ -1869,6 +1922,18 @@ private fun AppleMusicPositionSection(
     val currentPosition = positionProvider()
 
     Column {
+        InlineNowPlayingLyric(
+            playerConnection = playerConnection,
+            positionProvider = positionProvider,
+            isPlaying = isPlaying,
+            durationMs = duration,
+            onClick = onLyricsClick,
+            visible = !lyricsVisible,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp),
+        )
         AppleMusicSeekBar(
             position = sliderPosition ?: currentPosition,
             duration = duration,

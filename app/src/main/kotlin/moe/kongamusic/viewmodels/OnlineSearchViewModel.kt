@@ -33,7 +33,7 @@ import moe.kongamusic.innertube.models.SongItem
 import moe.kongamusic.innertube.models.YTItem
 import moe.kongamusic.innertube.models.filterExplicit
 import moe.kongamusic.innertube.models.filterVideo
-import moe.kongamusic.innertube.models.filterUnsupportedEpisodes
+
 import moe.kongamusic.innertube.pages.SearchSummaryPage
 import moe.kongamusic.models.ItemsPage
 import moe.kongamusic.ui.screens.search.OnlineSearchProviderArgument
@@ -128,7 +128,7 @@ class OnlineSearchViewModel
                                             .copy(
                                                 items =
                                                     filterAiContent(
-                                                        summary.items.filterUnsupportedEpisodes(),
+                                                        summary.items,
                                                         aiContentFilterPolicy,
                                                     ),
                                             )
@@ -157,7 +157,6 @@ class OnlineSearchViewModel
                                 filterAiContent(
                                     result.items
                                         .distinctBy { it.id }
-                                        .filterUnsupportedEpisodes()
                                         .filterExplicit(
                                             context.dataStore.get(
                                                 HideExplicitKey,

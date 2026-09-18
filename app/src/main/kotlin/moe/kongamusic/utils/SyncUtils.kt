@@ -219,7 +219,7 @@ class SyncUtils
                 }
 
         private suspend fun isLoggedIn(): Boolean {
-            moe.kongamusic.App.startupReadiness.awaitReady()
+
             val cookie =
                 context.dataStore.data
                     .map { it[InnerTubeCookieKey] }

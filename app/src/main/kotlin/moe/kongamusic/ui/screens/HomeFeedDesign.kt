@@ -94,6 +94,8 @@ import moe.kongamusic.ui.menu.YouTubeAlbumMenu
 import moe.kongamusic.ui.menu.YouTubeArtistMenu
 import moe.kongamusic.ui.menu.YouTubePlaylistMenu
 import moe.kongamusic.ui.menu.YouTubeSongMenu
+import moe.kongamusic.innertube.models.EpisodeItem
+import moe.kongamusic.innertube.models.PodcastItem
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeProgressive
 import dev.chrisbanes.haze.hazeEffect
@@ -521,6 +523,7 @@ fun HomeFeedYTItemCard(
     haptic: HapticFeedback,
     scope: CoroutineScope,
     onPlaySongFromSection: (String) -> Unit = {},
+    onPlayEpisode: (EpisodeItem) -> Unit = {},
     modifier: Modifier = Modifier,
     isPlaying: Boolean = false,
 ) {
@@ -530,10 +533,52 @@ fun HomeFeedYTItemCard(
             is AlbumItem -> item.artists?.joinToString { it.name } ?: item.year?.toString().orEmpty()
             is ArtistItem -> item.subscriberCountText.orEmpty()
             is PlaylistItem -> item.songCountText.orEmpty()
+            is PodcastItem -> item.author?.name.orEmpty()
+            is EpisodeItem -> listOfNotNull(item.podcast?.name, item.dateText, item.durationText).joinToString(" • ")
         }
 
     val (cropThumbnailToSquare, _) = rememberPreference(CropThumbnailToSquareKey, false)
     val resolvedThumbnailRatio = item.preferredThumbnailRatio(cropThumbnailToSquare)
+    val longClickHandler: (() -> Unit)? =
+        if (item is PodcastItem || item is EpisodeItem) {
+            null
+        } else {
+            {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                menuState.show {
+                    when (item) {
+                        is SongItem ->
+                            YouTubeSongMenu(
+                                song = item,
+                                navController = navController,
+                                onDismiss = menuState::dismiss,
+                            )
+
+                        is AlbumItem ->
+                            YouTubeAlbumMenu(
+                                albumItem = item,
+                                navController = navController,
+                                onDismiss = menuState::dismiss,
+                            )
+
+                        is ArtistItem ->
+                            YouTubeArtistMenu(
+                                artist = item,
+                                onDismiss = menuState::dismiss,
+                            )
+
+                        is PlaylistItem ->
+                            YouTubePlaylistMenu(
+                                playlist = item,
+                                coroutineScope = scope,
+                                onDismiss = menuState::dismiss,
+                            )
+
+                        is PodcastItem, is EpisodeItem -> Unit
+                    }
+                }
+            }
+        }
     HomeFeedShelfCard(
         thumbnailUrl = item.thumbnail,
         title = item.title,
@@ -548,41 +593,11 @@ fun HomeFeedYTItemCard(
                 is AlbumItem -> navController.navigate("album/${item.id}")
                 is ArtistItem -> navController.navigate("artist/${item.id}")
                 is PlaylistItem -> navController.navigate("online_playlist/${item.id}")
+                is PodcastItem -> navController.navigate("podcast/${android.net.Uri.encode(item.browseId)}")
+                is EpisodeItem -> onPlayEpisode(item)
             }
         },
-        onLongClick = {
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            menuState.show {
-                when (item) {
-                    is SongItem ->
-                        YouTubeSongMenu(
-                            song = item,
-                            navController = navController,
-                            onDismiss = menuState::dismiss,
-                        )
-
-                    is AlbumItem ->
-                        YouTubeAlbumMenu(
-                            albumItem = item,
-                            navController = navController,
-                            onDismiss = menuState::dismiss,
-                        )
-
-                    is ArtistItem ->
-                        YouTubeArtistMenu(
-                            artist = item,
-                            onDismiss = menuState::dismiss,
-                        )
-
-                    is PlaylistItem ->
-                        YouTubePlaylistMenu(
-                            playlist = item,
-                            coroutineScope = scope,
-                            onDismiss = menuState::dismiss,
-                        )
-                }
-            }
-        },
+        onLongClick = longClickHandler,
         modifier = modifier,
     )
 }

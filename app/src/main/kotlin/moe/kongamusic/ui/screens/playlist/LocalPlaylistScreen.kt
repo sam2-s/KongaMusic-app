@@ -152,6 +152,7 @@ import moe.kongamusic.viewmodels.PlaylistCoverEvent
 import moe.kongamusic.viewmodels.PlaylistCoverState
 import moe.kongamusic.ui.player.LocalMiniPlayerDocked
 import moe.kongamusic.ui.player.LocalPlayerLyricsFullScreen
+import moe.kongamusic.constants.AlbumCanvasEnabledKey
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import java.time.LocalDateTime
@@ -176,6 +177,8 @@ fun LocalPlaylistScreen(
 
     val playlist by viewModel.playlist.collectAsStateWithLifecycle()
     val songs by viewModel.playlistSongs.collectAsStateWithLifecycle()
+    // No canvas on local playlist pages (user request 2026-09-16): the hero
+    // renders its plain Apple-Music text layout — no canvas URLs threaded in.
     val viewCounts by viewModel.viewCounts.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val coverState by viewModel.coverState.collectAsStateWithLifecycle()

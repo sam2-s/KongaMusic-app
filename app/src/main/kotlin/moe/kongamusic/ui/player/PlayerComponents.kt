@@ -353,10 +353,6 @@ fun PlayerTopActions(
     iconButtonColor: Color,
     textBackgroundColor: Color,
     playerConnection: PlayerConnection,
-    navController: NavController,
-    menuState: MenuState,
-    state: BottomSheetState,
-    bottomSheetPageState: BottomSheetPageState,
     context: Context,
     currentSongLiked: Boolean,
 ) {
@@ -495,41 +491,6 @@ fun PlayerTopActions(
                         )
                     }
                 }
-
-                Surface(
-                    onClick = {
-                        menuState.show {
-                            PlayerMenu(
-                                mediaMetadata = mediaMetadata,
-                                navController = navController,
-                                playerBottomSheetState = state,
-                                onShowDetailsDialog = {
-                                    mediaMetadata.id.let {
-                                        bottomSheetPageState.show {
-                                            ShowMediaInfo(it)
-                                        }
-                                    }
-                                },
-                                onDismiss = menuState::dismiss,
-                            )
-                        }
-                    },
-                    shape = RoundedCornerShape(14.dp),
-                    color = textBackgroundColor.copy(alpha = 0.12f),
-                    modifier =
-                        Modifier
-                            .height(44.dp)
-                            .width(44.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                        Icon(
-                            painter = painterResource(R.drawable.player_more_horiz),
-                            contentDescription = null,
-                            tint = textBackgroundColor,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                }
             }
         }
 
@@ -542,6 +503,7 @@ fun PlayerTopActions(
         PlayerDesignStyle.SIMPMUSIC,
         PlayerDesignStyle.SPATIALFLOW,
         PlayerDesignStyle.TUI,
+        PlayerDesignStyle.LOOPER,
         -> {
             Unit
         }
@@ -1122,6 +1084,7 @@ fun PlayerPlaybackControls(
         PlayerDesignStyle.SIMPMUSIC,
         PlayerDesignStyle.SPATIALFLOW,
         PlayerDesignStyle.TUI,
+        PlayerDesignStyle.LOOPER,
         -> {
             Unit
         }
@@ -1149,8 +1112,6 @@ fun PlayerControlsContent(
     playerConnection: PlayerConnection,
     navController: NavController,
     state: BottomSheetState,
-    menuState: MenuState,
-    bottomSheetPageState: BottomSheetPageState,
     context: Context,
     onSliderValueChange: (Long) -> Unit,
     onSliderValueChangeFinished: () -> Unit,
@@ -1191,10 +1152,6 @@ fun PlayerControlsContent(
             iconButtonColor = iconButtonColor,
             textBackgroundColor = textBackgroundColor,
             playerConnection = playerConnection,
-            navController = navController,
-            menuState = menuState,
-            state = state,
-            bottomSheetPageState = bottomSheetPageState,
             context = context,
             currentSongLiked = currentSongLiked,
         )
@@ -1294,6 +1251,7 @@ fun V8PlayerControlsContent(
     currentSongLiked: Boolean,
     sliderPosition: Long?,
     position: Long,
+    positionProvider: () -> Long,
     duration: Long,
     volume: Float,
     showVolumeBar: Boolean,
@@ -1301,34 +1259,16 @@ fun V8PlayerControlsContent(
     playerConnection: PlayerConnection,
     navController: NavController,
     state: BottomSheetState,
-    menuState: MenuState,
-    bottomSheetPageState: BottomSheetPageState,
     onSliderValueChange: (Long) -> Unit,
     onSliderValueChangeFinished: () -> Unit,
     onVolumeChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
     landscape: Boolean = false,
+    lyricsVisible: Boolean = false,
+    onLyricsClick: (() -> Unit)? = null,
 ) {
     val foreground = Color.White
     val secondaryForeground = foreground.copy(alpha = 0.72f)
-    val onMenuClick =
-        remember(mediaMetadata, navController, state, menuState, bottomSheetPageState) {
-            {
-                menuState.show {
-                    PlayerMenu(
-                        mediaMetadata = mediaMetadata,
-                        navController = navController,
-                        playerBottomSheetState = state,
-                        onShowDetailsDialog = {
-                            bottomSheetPageState.show {
-                                ShowMediaInfo(mediaMetadata.id)
-                            }
-                        },
-                        onDismiss = menuState::dismiss,
-                    )
-                }
-            }
-        }
     val titleActions = rememberPlayerTitleActions(mediaMetadata, navController, state)
     val onTitleClick = titleActions.onTitleClick
     val onArtistClick = titleActions.onArtistClick
@@ -1400,13 +1340,25 @@ fun V8PlayerControlsContent(
                 artists = mediaMetadata.artists,
                 liked = currentSongLiked,
                 foreground = foreground,
-                onMenuClick = onMenuClick,
                 onToggleLike = onToggleLike,
                 onTitleClick = onTitleClick,
                 onArtistClick = onArtistClick,
             )
 
             Spacer(Modifier.height(contentGap))
+
+            InlineNowPlayingLyric(
+                playerConnection = playerConnection,
+                positionProvider = positionProvider,
+                isPlaying = isPlaying,
+                durationMs = duration,
+                onClick = { onLyricsClick?.invoke() },
+                visible = !lyricsVisible && onLyricsClick != null,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 6.dp),
+            )
 
             V8PlaybackProgress(
                 sliderPosition = sliderPosition,
@@ -1453,7 +1405,6 @@ private fun V8MetadataActions(
     artists: List<MediaMetadata.Artist>,
     liked: Boolean,
     foreground: Color,
-    onMenuClick: () -> Unit,
     onToggleLike: () -> Unit,
     onTitleClick: () -> Unit,
     onArtistClick: (artistId: String) -> Unit,
@@ -1503,14 +1454,6 @@ private fun V8MetadataActions(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            V8ActionButton(
-                iconRes = R.drawable.player_more_vert,
-                contentDescription = stringResource(R.string.more_options),
-                foreground = foreground,
-                containerColor = foreground.copy(alpha = 0.16f),
-                iconSize = 24.dp,
-                onClick = onMenuClick,
-            )
             V8ActionButton(
                 iconRes = if (liked) R.drawable.player_favorite else R.drawable.player_favorite_border,
                 contentDescription = stringResource(R.string.action_like),
@@ -1878,6 +1821,10 @@ fun V9PlayerContent(
     onCollapseClick: () -> Unit,
     onQueueClick: () -> Unit,
     onLyricsClick: () -> Unit,
+    lyricsOpen: Boolean,
+    onCloseLyrics: () -> Unit,
+    lyricsSyncOffset: Int,
+    onLyricsSyncOffsetChange: (Int) -> Unit,
     onSliderValueChange: (Long) -> Unit,
     onSliderValueChangeFinished: () -> Unit,
     modifier: Modifier = Modifier,
@@ -1938,6 +1885,7 @@ fun V9PlayerContent(
 
     if (landscape) {
         V9LandscapeContent(
+            mediaMetadata = mediaMetadata,
             title = mediaMetadata.title,
             explicit = mediaMetadata.explicit,
             artists = mediaMetadata.artists,
@@ -1959,6 +1907,10 @@ fun V9PlayerContent(
             onCollapseClick = onCollapseClick,
             onQueueClick = onQueueClick,
             onLyricsClick = onLyricsClick,
+            lyricsOpen = lyricsOpen,
+            onCloseLyrics = onCloseLyrics,
+            lyricsSyncOffset = lyricsSyncOffset,
+            onLyricsSyncOffsetChange = onLyricsSyncOffsetChange,
             onTitleClick = onTitleClick,
             onArtistClick = onArtistClick,
             onPreviousClick = playerConnection::seekToPrevious,
@@ -1975,6 +1927,7 @@ fun V9PlayerContent(
         )
     } else {
         V9PortraitContent(
+            mediaMetadata = mediaMetadata,
             title = mediaMetadata.title,
             explicit = mediaMetadata.explicit,
             artists = mediaMetadata.artists,
@@ -1996,6 +1949,10 @@ fun V9PlayerContent(
             onCollapseClick = onCollapseClick,
             onQueueClick = onQueueClick,
             onLyricsClick = onLyricsClick,
+            lyricsOpen = lyricsOpen,
+            onCloseLyrics = onCloseLyrics,
+            lyricsSyncOffset = lyricsSyncOffset,
+            onLyricsSyncOffsetChange = onLyricsSyncOffsetChange,
             onTitleClick = onTitleClick,
             onArtistClick = onArtistClick,
             onPreviousClick = playerConnection::seekToPrevious,
@@ -2013,6 +1970,7 @@ fun V9PlayerContent(
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun V9PortraitContent(
+    mediaMetadata: MediaMetadata,
     title: String,
     explicit: Boolean,
     artists: List<MediaMetadata.Artist>,
@@ -2034,6 +1992,10 @@ private fun V9PortraitContent(
     onCollapseClick: () -> Unit,
     onQueueClick: () -> Unit,
     onLyricsClick: () -> Unit,
+    lyricsOpen: Boolean,
+    onCloseLyrics: () -> Unit,
+    lyricsSyncOffset: Int,
+    onLyricsSyncOffsetChange: (Int) -> Unit,
     onPreviousClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onNextClick: () -> Unit,
@@ -2083,15 +2045,26 @@ private fun V9PortraitContent(
                     .fillMaxWidth(),
                 contentAlignment = Alignment.Center,
             ) {
-                V9Artwork(
-                    artworkUrl = artworkUrl,
-                    canvasSource = canvasSource,
-                    canvasPrimaryUrl = canvasPrimaryUrl,
-                    canvasFallbackUrl = canvasFallbackUrl,
-                    isPlaying = isPlaying,
-                    placeholderColor = textBackgroundColor.copy(alpha = 0.08f),
-                    modifier = Modifier.aspectRatio(1f)
-                )
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = !lyricsOpen,
+                    enter = androidx.compose.animation.fadeIn(
+                        androidx.compose.animation.core.tween(300)
+                    ),
+                    exit = androidx.compose.animation.fadeOut(
+                        androidx.compose.animation.core.tween(200)
+                    ),
+                ) {
+                    V9Artwork(
+                        artworkUrl = artworkUrl,
+                        canvasSource = canvasSource,
+                        canvasPrimaryUrl = canvasPrimaryUrl,
+                        canvasFallbackUrl = canvasFallbackUrl,
+                        isPlaying = isPlaying,
+                        placeholderColor = textBackgroundColor.copy(alpha = 0.08f),
+                        modifier = Modifier.aspectRatio(1f)
+                    )
+                }
+
             }
 
             Spacer(Modifier.height(headerGap))
@@ -2229,6 +2202,7 @@ private fun V9PortraitContent(
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun V9LandscapeContent(
+    mediaMetadata: MediaMetadata,
     title: String,
     explicit: Boolean,
     artists: List<MediaMetadata.Artist>,
@@ -2250,6 +2224,10 @@ private fun V9LandscapeContent(
     onCollapseClick: () -> Unit,
     onQueueClick: () -> Unit,
     onLyricsClick: () -> Unit,
+    lyricsOpen: Boolean,
+    onCloseLyrics: () -> Unit,
+    lyricsSyncOffset: Int,
+    onLyricsSyncOffsetChange: (Int) -> Unit,
     onPreviousClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onNextClick: () -> Unit,
@@ -2278,15 +2256,30 @@ private fun V9LandscapeContent(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(26.dp),
         ) {
-            V9Artwork(
-                artworkUrl = artworkUrl,
-                canvasSource = canvasSource,
-                canvasPrimaryUrl = canvasPrimaryUrl,
-                canvasFallbackUrl = canvasFallbackUrl,
-                isPlaying = isPlaying,
-                size = artworkSize,
-                placeholderColor = textBackgroundColor.copy(alpha = 0.08f),
-            )
+            Box(
+                modifier = Modifier.width(artworkSize),
+            ) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = !lyricsOpen,
+                    enter = androidx.compose.animation.fadeIn(
+                        androidx.compose.animation.core.tween(300)
+                    ),
+                    exit = androidx.compose.animation.fadeOut(
+                        androidx.compose.animation.core.tween(200)
+                    ),
+                ) {
+                    V9Artwork(
+                        artworkUrl = artworkUrl,
+                        canvasSource = canvasSource,
+                        canvasPrimaryUrl = canvasPrimaryUrl,
+                        canvasFallbackUrl = canvasFallbackUrl,
+                        isPlaying = isPlaying,
+                        size = artworkSize,
+                        placeholderColor = textBackgroundColor.copy(alpha = 0.08f),
+                    )
+                }
+
+            }
 
             Column(
                 modifier =
@@ -3220,6 +3213,10 @@ fun V10PlayerContent(
     onCollapseClick: () -> Unit,
     onQueueClick: () -> Unit,
     onLyricsClick: () -> Unit,
+    lyricsOpen: Boolean,
+    onCloseLyrics: () -> Unit,
+    lyricsSyncOffset: Int,
+    onLyricsSyncOffsetChange: (Int) -> Unit,
     onSliderValueChange: (Long) -> Unit,
     onSliderValueChangeFinished: () -> Unit,
     onSleepTimerClick: () -> Unit,
@@ -3346,18 +3343,29 @@ fun V10PlayerContent(
                 .weight(1.0f),
             contentAlignment = Alignment.Center
         ) {
-            EditorialDieCutArt(
-                artworkUrl = artworkUrl,
-                mediaMetadataId = mediaMetadata.id,
-                isPlaying = isPlaying,
-                onTap = onPlayPauseClick,
-                accent = accent,
-                field = field,
-                canSkipPrevious = canSkipPrevious,
-                canSkipNext = canSkipNext,
-                onSkipPrevious = { playerConnection.player.seekToPrevious() },
-                onSkipNext = { playerConnection.player.seekToNext() }
-            )
+            androidx.compose.animation.AnimatedVisibility(
+                visible = !lyricsOpen,
+                enter = androidx.compose.animation.fadeIn(
+                    androidx.compose.animation.core.tween(300)
+                ),
+                exit = androidx.compose.animation.fadeOut(
+                    androidx.compose.animation.core.tween(200)
+                ),
+            ) {
+                EditorialDieCutArt(
+                    artworkUrl = artworkUrl,
+                    mediaMetadataId = mediaMetadata.id,
+                    isPlaying = isPlaying,
+                    onTap = onPlayPauseClick,
+                    accent = accent,
+                    field = field,
+                    canSkipPrevious = canSkipPrevious,
+                    canSkipNext = canSkipNext,
+                    onSkipPrevious = { playerConnection.player.seekToPrevious() },
+                    onSkipNext = { playerConnection.player.seekToNext() }
+                )
+            }
+
         }
 
         val title = mediaMetadata.title
@@ -3754,33 +3762,6 @@ internal fun EditorialCircleButton(
         contentAlignment = Alignment.Center
     ) {
         CompositionLocalProvider(LocalContentColor provides field) {
-            content()
-        }
-    }
-}
-
-@Composable
-internal fun EditorialChip(
-    checked: Boolean,
-    onClick: () -> Unit,
-    accent: Color,
-    field: Color,
-    content: @Composable () -> Unit
-) {
-    val backgroundColor by animateColorAsState(
-        targetValue = if (checked) accent else Color.Transparent,
-        label = "EditorialChipBg"
-    )
-    val contentColor = if (checked) field else accent
-    Box(
-        modifier = Modifier
-            .size(48.dp)
-            .clip(CircleShape)
-            .background(backgroundColor)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        CompositionLocalProvider(LocalContentColor provides contentColor) {
             content()
         }
     }

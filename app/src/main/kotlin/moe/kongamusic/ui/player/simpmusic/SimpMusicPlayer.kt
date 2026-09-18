@@ -120,6 +120,7 @@ import moe.kongamusic.ui.player.rememberInlineLyricLines
 import moe.kongamusic.ui.player.rememberMeshPalette
 import moe.kongamusic.ui.utils.ShowMediaInfo
 import moe.kongamusic.ui.utils.highRes
+import moe.kongamusic.ui.utils.rememberMediaInfo
 import java.util.Locale
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -127,8 +128,6 @@ import androidx.compose.runtime.setValue
 private val Backdrop = Color(0xFF121212)
 
 private val CardPanel = Color(0xFF212121)
-
-private val YOUTUBE_ID = Regex("^[A-Za-z0-9_-]{11}$")
 
 private const val MAX_SURFACE_LUMINANCE = 0.10f
 
@@ -167,7 +166,6 @@ fun SimpMusicPlayerContent(
     currentFormat: FormatEntity?,
     onSeek: (Long) -> Unit,
     onSeekFinished: () -> Unit,
-    onShowLyrics: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -184,11 +182,9 @@ fun SimpMusicPlayerContent(
     val startColor = (palette.colors.getOrNull(0) ?: Backdrop).asSurface()
     val endColor = (palette.colors.getOrNull(1) ?: lerp(startColor, Backdrop, 0.6f)).asSurface()
 
-    var mediaInfo by remember(mediaMetadata.id) { mutableStateOf<MediaInfo?>(null) }
-    LaunchedEffect(mediaMetadata.id) {
-        if (!YOUTUBE_ID.matches(mediaMetadata.id)) return@LaunchedEffect
-        mediaInfo = runCatching { YouTube.getMediaInfo(mediaMetadata.id).getOrNull() }.getOrNull()
-    }
+    // The two lower cards are YouTube facts about the track. Each hides itself when this is null,
+    // which covers a non-YouTube source as well as a lookup that came back empty.
+    val mediaInfo = rememberMediaInfo(mediaMetadata.id)
 
     val scrollState = rememberScrollState()
 
@@ -382,6 +378,7 @@ fun SimpMusicPlayerContent(
                 bottomSheetPageState = bottomSheetPageState,
                 color = startColor,
                 onDismiss = { lyricsFullscreenOpen = false },
+                paletteColors = palette.colors,
             )
         }
     }

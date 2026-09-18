@@ -55,6 +55,7 @@ import moe.kongamusic.ui.component.TextFieldDialog
 import moe.kongamusic.ui.menu.CrossServiceImportPlaylistDialog
 import moe.kongamusic.ui.utils.backToMain
 import moe.kongamusic.utils.rememberPreference
+import moe.kongamusic.constants.AmazonAccountNameKey
 import androidx.compose.foundation.layout.asPaddingValues
 import moe.kongamusic.ui.screens.ScreenHeaderHaze
 import moe.kongamusic.ui.screens.rememberScreenHeaderHaze
@@ -83,7 +84,9 @@ fun IntegrationScreen(
     val (deezerArl, _) = rememberPreference(DeezerArlKey, "")
     val (tidalAccessToken, _) = rememberPreference(TidalAccessTokenKey, "")
     val (qobuzTokens, _) = rememberPreference(QobuzTokensKey, "")
+    val (amazonAccountName, _) = rememberPreference(AmazonAccountNameKey, "")
     val showDeezerRow = manualSourceLogin || deezerArl.isNotBlank()
+    val showAmazonRow = manualSourceLogin || amazonAccountName.isNotBlank()
     val showTidalRow = manualSourceLogin || tidalAccessToken.isNotBlank()
     val showQobuzRow = manualSourceLogin || qobuzTokens.isNotBlank()
 
@@ -241,6 +244,18 @@ fun IntegrationScreen(
                         icon = { Icon(painterResource(R.drawable.provider_deezer), null) },
                         onClick = {
                             navController.navigate("settings/deezer")
+                        },
+                    )
+                }
+
+                item(visible = showAmazonRow) {
+                    PreferenceEntry(
+                        modifier = positions.modifierFor("amazon"),
+                        title = { Text(stringResource(R.string.source_amazon)) },
+                        description = stringResource(R.string.amazon_login_description),
+                        icon = { Icon(painterResource(R.drawable.login), null) },
+                        onClick = {
+                            navController.navigate("settings/amazon")
                         },
                     )
                 }

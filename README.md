@@ -4,16 +4,17 @@
 
 # KongaMusic
 
-**Terminal-flavoured. Updates-free. Yours.**
+**A slimmed, rebranded ArchiveTune fork — TUI-flavoured, updates-free, made to feel like home.**
 
 </div>
 
-KongaMusic is a slim MusicTune-flavoured player. It keeps a rock-solid
+KongaMusic (repository `sam2-s/KongaMusic`) is a fork of
+[ArchiveTune](https://github.com/darkion-4/ArchiveTune). It keeps the rock-solid
 Tidal / YouTube / multi-source playback engine, swaps in an animated full-color
 **Terminal-User-Interface ASCII mode** for the now-playing screen, defaults to the
-modern **liquid-glass dark** look, and has **no app-update subsystem at all**
-— no labels, banners, badges, sheets, workers, or services. It never asks you to
-update itself, and it never decides on its own. New-release *albums* from your
+modern **liquid-glass dark** look, and **removes the entire app-update subsystem**
+(labels, banners, badges, sheets, workers, services) so that the app never asks you
+to update itself and never decides on its own. New-release *albums* from your
 subscribed artists still get a friendly notification — that's a music feature, not an
 update nag.
 
@@ -53,6 +54,26 @@ KongaMusic ships opinionated so it feels right on day one:
 - **Player** – default style `bitchord` (animated mini-cover TUI canvas)
 - **Mini-player background** – `frosted` glass
 - **Update prompts** – all removed (no prompts, banners, badges, or update sheet)
+
+---
+
+## 🙏 Credits & acknowledgements
+
+Standing on the shoulders of a generous open-source community:
+
+- **ArchiveTune** by [Rukamori](https://github.com/rukamori) — the upstream this fork tracks.
+- **Metrolist** by [Mostafa Alagamy](https://github.com/mostafaalagamy/Metrolist) for the base framework.
+- **SimpMusic** by [maxrave-dev](https://github.com/maxrave-dev/SimpMusic) for the player style and the lyrics API provider.
+- **SpatialFlow** by [MythicalSHUB](https://github.com/MythicalSHUB/SpatialFlow) for the player style and the music haptics feature.
+- **Looper** by [SthrNilshaaa](https://github.com/SthrNilshaaa/looper) for the Looper player design — its typography (Jost, by [indestructible-type](https://github.com/indestructible-type/Jost), SIL OFL), squiggly expressive slider, asymmetric transport pills and blurred-sleeve backdrop.
+- **Vivi Music** by [vivizzz007](https://github.com/vivizzz007/vivi-music) for the Apple Music player morph animations, the JioSaavn integration, and the Listen Together server.
+- **Muzo** by [Shashwat-CODING](https://github.com/Shashwat-CODING/Muzo) for the fonts API, Spotify Canvas, and Qobuz backup, as well as design inspiration.
+- **BitChord** by [kushagrasinghx](https://github.com/kushagrasinghx/BitChord) for the player style.
+- [BetterLyrics](https://better-lyrics.boidu.dev/) for word-by-word lyrics, unison and artwork provider support.
+- **LastWave** by [Clash-Projects](https://github.com/Clash-Projects/LastWave-native) for the Last.fm stats design.
+- [Material Color Utilities](https://github.com/material-foundation/material-color-utilities)
+- [Read You](https://github.com/Ashinch/ReadYou) and [Seal](https://github.com/JunkFood02/Seal) for UI component inspiration.
+- Translators, beta testers, contributors, and community members who continue to support the project.
 
 ---
 

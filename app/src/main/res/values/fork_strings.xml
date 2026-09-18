@@ -57,7 +57,7 @@
     <!-- Update info dialog (ported from vivi-music under GPL-3.0). -->
 
     <string name="minimal_home_mode">Minimal mode</string>
-    <string name="minimal_home_mode_desc">Hide all home sections except Keep listening, Recently played and Live performances. The hero card at the top stays visible.</string>
+    <string name="minimal_home_mode_desc">Hide all home sections except Keep listening, Recently played and Live performances. The hero card at the top stays visible. Also applies to the search tab: only the search field and recent searches stay, trending content is hidden.</string>
 
     <string name="download_source_jiosaavn">JioSaavn</string>
 
@@ -79,6 +79,11 @@
     <string name="check_source">Check source</string>
     <string name="check_source_description">Run a health probe to verify this source is reachable and configured correctly</string>
     <string name="check_source_result_title">%1s check</string>
+    <string name="check_source_status_ready">Ready</string>
+    <string name="check_source_status_degraded">Partially ready</string>
+    <string name="check_source_status_not_configured">Not set up</string>
+    <string name="check_source_status_unsupported">Sign-in only (no playback yet)</string>
+    <string name="check_source_status_unreachable">Not reachable</string>
     <string name="quality_badge_aac">AAC 256 kbps</string>
     <string name="quality_badge_saavn">AAC 320 kbps</string>
     <string name="quality_badge_mp3">MP3 320 kbps</string>
@@ -115,8 +120,8 @@
     <string name="lastfm_player_unavailable">Player not ready. Try again in a moment.</string>
 
     <string name="album_page">Album page</string>
-    <string name="album_canvas_enabled">Enable canvas in albums page</string>
-    <string name="album_canvas_enabled_desc">Play the album\'s looping motion artwork behind the album header, the way Apple Music does. Turn off to always show the static cover.</string>
+    <string name="album_canvas_enabled">Enable canvas in album and playlist page</string>
+    <string name="album_canvas_enabled_desc">Play the looping motion artwork behind the album and playlist headers, the way Apple Music does. Turn off to always show the static cover.</string>
 
     <string name="source_qobuz_backup_search_hint">Search the kouzu.in backup catalogue</string>
 
@@ -167,4 +172,10 @@
     <string name="sponsor_block_fillers">Fillers</string>
     <string name="sponsor_block_subscription_reminders">Subscription reminders</string>
     <string name="sponsor_block_hooks">Hook/Greetings</string>
+
+    <!-- First-run welcome screen (ui/screens/onboarding/WelcomeScreen.kt). -->
+    <string name="welcome_brand_title">KongaMusic</string>
+    <string name="welcome_headline">Welcome to KongaMusic</string>
+    <string name="welcome_subtitle">All your music in one place — Tidal, Qobuz, Deezer, JioSaavn, Spotify and more.</string>
+    <string name="welcome_get_started">Get started</string>
 </resources>

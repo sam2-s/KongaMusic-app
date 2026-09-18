@@ -91,6 +91,10 @@ import moe.kongamusic.ui.menu.YouTubePlaylistMenu
 import moe.kongamusic.ui.menu.YouTubeSongMenu
 import moe.kongamusic.viewmodels.OnlineSearchSort
 import moe.kongamusic.viewmodels.OnlineSearchViewModel
+import moe.kongamusic.innertube.models.EpisodeItem
+import moe.kongamusic.innertube.models.PodcastItem
+import moe.kongamusic.extensions.toMediaItem
+import moe.kongamusic.playback.queues.ListQueue
 import androidx.compose.runtime.getValue
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -111,6 +115,10 @@ fun OnlineSearchResult(
     }
     if (viewModel.searchProvider == SearchProvider.APPLE_MUSIC) {
         AppleMusicOnlineSearchResult(navController = navController)
+        return
+    }
+    if (viewModel.searchProvider == SearchProvider.AMAZON) {
+        AmazonOnlineSearchResult(navController = navController)
         return
     }
 
@@ -171,43 +179,50 @@ fun OnlineSearchResult(
     }
 
     val ytItemContent: @Composable LazyItemScope.(YTItem) -> Unit = { item: YTItem ->
-        val longClick = {
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            menuState.show {
-                when (item) {
-                    is SongItem -> {
-                        YouTubeSongMenu(
-                            song = item,
-                            navController = navController,
-                            onDismiss = menuState::dismiss,
-                        )
-                    }
+        val longClick: (() -> Unit)? =
+            if (item is PodcastItem || item is EpisodeItem) {
+                null
+            } else {
+                {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    menuState.show {
+                        when (item) {
+                            is SongItem -> {
+                                YouTubeSongMenu(
+                                    song = item,
+                                    navController = navController,
+                                    onDismiss = menuState::dismiss,
+                                )
+                            }
 
-                    is AlbumItem -> {
-                        YouTubeAlbumMenu(
-                            albumItem = item,
-                            navController = navController,
-                            onDismiss = menuState::dismiss,
-                        )
-                    }
+                            is AlbumItem -> {
+                                YouTubeAlbumMenu(
+                                    albumItem = item,
+                                    navController = navController,
+                                    onDismiss = menuState::dismiss,
+                                )
+                            }
 
-                    is ArtistItem -> {
-                        YouTubeArtistMenu(
-                            artist = item,
-                            onDismiss = menuState::dismiss,
-                        )
-                    }
+                            is ArtistItem -> {
+                                YouTubeArtistMenu(
+                                    artist = item,
+                                    onDismiss = menuState::dismiss,
+                                )
+                            }
 
-                    is PlaylistItem -> {
-                        YouTubePlaylistMenu(
-                            playlist = item,
-                            coroutineScope = coroutineScope,
-                            onDismiss = menuState::dismiss,
-                        )
+                            is PlaylistItem -> {
+                                YouTubePlaylistMenu(
+                                    playlist = item,
+                                    coroutineScope = coroutineScope,
+                                    onDismiss = menuState::dismiss,
+                                )
+                            }
+
+                            is PodcastItem, is EpisodeItem -> Unit
+                        }
                     }
                 }
             }
-        }
         YouTubeListItem(
             item = item,
             viewCountText = (item as? SongItem)?.viewCountText,
@@ -219,13 +234,15 @@ fun OnlineSearchResult(
                 },
             isPlaying = isPlaying,
             trailingContent = {
-                IconButton(
-                    onClick = longClick,
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.more_vert),
-                        contentDescription = null,
-                    )
+                if (longClick != null) {
+                    IconButton(
+                        onClick = longClick,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.more_vert),
+                            contentDescription = null,
+                        )
+                    }
                 }
             },
             modifier =
@@ -267,6 +284,19 @@ fun OnlineSearchResult(
 
                                 is PlaylistItem -> {
                                     navController.navigate("online_playlist/${item.id}")
+                                }
+
+                                is PodcastItem -> {
+                                    navController.navigate("podcast/${android.net.Uri.encode(item.browseId)}")
+                                }
+
+                                is EpisodeItem -> {
+                                    playerConnection.playQueue(
+                                        ListQueue(
+                                            title = item.podcast?.name ?: item.title,
+                                            items = listOf(item.toMediaItem()),
+                                        ),
+                                    )
                                 }
                             }
                         },

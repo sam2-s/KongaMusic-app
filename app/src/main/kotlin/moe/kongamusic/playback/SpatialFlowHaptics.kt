@@ -761,7 +761,6 @@ class SpatialFlowHapticEngine(context: Context) {
     }
 }
 
-
 object MusicHapticsSettings {
     private const val PREFS_NAME = "AppSettings"
     private const val KEY_ENABLED = "haptics_enabled"

@@ -163,6 +163,8 @@ import moe.kongamusic.viewmodels.ArtistAction
 import moe.kongamusic.viewmodels.ArtistBlockState
 import moe.kongamusic.viewmodels.ArtistEvent
 import moe.kongamusic.viewmodels.ArtistViewModel
+import moe.kongamusic.innertube.models.EpisodeItem
+import moe.kongamusic.innertube.models.PodcastItem
 import java.util.Locale
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -1041,6 +1043,19 @@ fun ArtistScreen(
                                                                 is PlaylistItem -> {
                                                                     navController.navigate("online_playlist/${item.id}")
                                                                 }
+
+                                                                is PodcastItem -> {
+                                                                    navController.navigate("podcast/${android.net.Uri.encode(item.browseId)}")
+                                                                }
+
+                                                                is EpisodeItem -> {
+                                                                    playerConnection.playQueue(
+                                                                        YouTubeQueue(
+                                                                            item.endpoint,
+                                                                            item.toMediaMetadata(),
+                                                                        ),
+                                                                    )
+                                                                }
                                                             }
                                                         },
                                                         onLongClick = {
@@ -1077,6 +1092,8 @@ fun ArtistScreen(
                                                                             onDismiss = menuState::dismiss,
                                                                         )
                                                                     }
+
+                                                                    is PodcastItem, is EpisodeItem -> Unit
                                                                 }
                                                             }
                                                         },

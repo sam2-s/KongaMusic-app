@@ -84,7 +84,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
-import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Timeline
 import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
@@ -123,6 +122,7 @@ import moe.kongamusic.ui.utils.ShowMediaInfo
 import moe.kongamusic.utils.oem.SystemMediaControlResolver
 import moe.kongamusic.utils.rememberEnumPreference
 import moe.kongamusic.utils.rememberPreference
+import moe.kongamusic.constants.ShowCodecOnPlayerKey
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import java.time.LocalDateTime
@@ -381,7 +381,7 @@ fun Queue(
 
     val (showCodecOnPlayer) =
         rememberPreference(
-            key = booleanPreferencesKey("show_codec_on_player"),
+            key = ShowCodecOnPlayerKey,
             defaultValue = false,
         )
 
@@ -572,6 +572,10 @@ fun Queue(
                 }
 
                 PlayerDesignStyle.TUI -> {
+
+                }
+
+                PlayerDesignStyle.LOOPER -> {
 
                 }
             }

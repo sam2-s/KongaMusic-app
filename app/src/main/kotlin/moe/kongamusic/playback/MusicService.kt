@@ -17,7 +17,6 @@ import android.app.PendingIntent
 import android.bluetooth.BluetoothClass
 import android.bluetooth.BluetoothDevice
 import android.content.BroadcastReceiver
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -31,6 +30,7 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.BassBoost
+import android.media.audiofx.EnvironmentalReverb
 import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.Virtualizer
@@ -51,6 +51,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.ParserException
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Player.EVENT_POSITION_DISCONTINUITY
 import androidx.media3.common.Player.EVENT_TIMELINE_CHANGED
@@ -93,11 +94,8 @@ import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.session.CommandButton
-import androidx.media3.session.MediaController
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
-import androidx.media3.session.SessionToken
-import com.google.common.util.concurrent.MoreExecutors
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -106,6 +104,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
@@ -349,6 +348,22 @@ import moe.kongamusic.utils.isLowDataModeActive
 import moe.kongamusic.utils.reportException
 import moe.kongamusic.utils.retryWithoutPlaybackLoginContext
 import moe.kongamusic.widget.LoadWidgetInsightsUseCase
+import moe.kongamusic.BuildConfig
+import moe.kongamusic.androidauto.AndroidAutoConfiguration
+import moe.kongamusic.androidauto.AndroidAutoCustomAction
+import moe.kongamusic.androidauto.AndroidAutoSettingsUseCases
+import moe.kongamusic.constants.AudioPlaybackSpeedKey
+import moe.kongamusic.constants.AudioPlaybackSpeedPitchMatchKey
+import moe.kongamusic.constants.Equalizer8DEnabledKey
+import moe.kongamusic.constants.Equalizer8DSpeedKey
+import moe.kongamusic.constants.EqualizerAudioEffectsEnabledKey
+import moe.kongamusic.constants.EqualizerBalanceKey
+import moe.kongamusic.constants.EqualizerReverbEnabledKey
+import moe.kongamusic.constants.EqualizerReverbPresetKey
+import moe.kongamusic.constants.AmazonEnabledKey
+import moe.kongamusic.ui.player.CanvasProviderPriority
+import moe.kongamusic.constants.AudioPlaybackPitchKey
+import moe.kongamusic.constants.DEFAULT_PRELOAD_SONGS_COUNT
 import okhttp3.OkHttpClient
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.Request
@@ -376,7 +391,6 @@ import kotlin.math.ceil
 import kotlin.math.pow
 import kotlin.math.roundToLong
 import kotlin.time.Duration.Companion.seconds
-import kotlinx.coroutines.plus
 
 private val JIO_SAAVN_NORMALIZE_REGEX = Regex("[^a-z0-9]")
 
@@ -388,6 +402,9 @@ class MusicService :
     PlaybackStatsListener.Callback {
     @Inject
     lateinit var spotifyLibraryRepository: SpotifyLibraryRepository
+
+    @Inject
+    lateinit var androidAutoSettings: AndroidAutoSettingsUseCases
     @Inject
     lateinit var database: MusicDatabase
 
@@ -436,6 +453,8 @@ class MusicService :
     private var sourceSwitchPending = false
     private var sourceSwitchExpectedVolume = 1f
     private var sourceSwitchReassertJob: Job? = null
+    private var pendingSeekVolumeReassert = false
+    private var seekVolumeReassertJob: Job? = null
     private var lastAudioOutputDeviceSignature: String? = null
     private var lastAudioRouteRecoveryRealtimeMs = 0L
 
@@ -835,6 +854,14 @@ class MusicService :
     private var bassBoost: BassBoost? = null
     private var virtualizer: Virtualizer? = null
     private var loudnessEnhancer: LoudnessEnhancer? = null
+    private var environmentalReverb: EnvironmentalReverb? = null
+    // One processor per audio sink: the primary and the crossfade secondary
+    // player each drive their own instance from their own playback thread -
+    // sharing one would race on the BaseAudioProcessor buffer state.
+    private val primaryStereoPanProcessor = StereoPanAudioProcessor()
+
+    @Volatile
+    private var secondaryStereoPanProcessor: StereoPanAudioProcessor? = null
     private val audioEffectPlayerListener =
         object : Player.Listener {
             override fun onEvents(
@@ -1227,7 +1254,7 @@ class MusicService :
             ExoPlayer
                 .Builder(this)
                 .setMediaSourceFactory(createMediaSourceFactory())
-                .setRenderersFactory(createRenderersFactory())
+                .setRenderersFactory(createRenderersFactory(primaryStereoPanProcessor))
                 .setLoadControl(createPrimaryLoadControl())
                 .setTrackSelector(DefaultTrackSelector(this, SafeTrackSelectionFactory()))
                 .setHandleAudioBecomingNoisy(true)
@@ -1286,6 +1313,10 @@ class MusicService :
             .collect(scope) { settings ->
                 val changed = artworkSettingsFlow.value != settings
                 artworkSettingsFlow.value = settings
+                // Feed the canvas video pipeline's provider ranking too — the
+                // video resolver reads it to decide whether ArchiveTune canvas
+                // or Spotify canvas resolves first.
+                CanvasProviderPriority.updateFrom(settings.providerOrder)
                 if (changed) {
 
                     artworkResolver.invalidate()
@@ -1323,7 +1354,7 @@ class MusicService :
                 }
             }
         dataStore.data
-            .map { preferences -> preferences[PreloadSongsCountKey] ?: 0 }
+            .map { preferences -> preferences[PreloadSongsCountKey] ?: DEFAULT_PRELOAD_SONGS_COUNT }
             .distinctUntilChanged()
             .collect(scope) { updateSongPreload() }
         widgetUpdater =
@@ -1352,32 +1383,61 @@ class MusicService :
             toggleLike = ::toggleLike
             toggleStartRadio = ::toggleStartRadio
             toggleLibrary = ::toggleLibrary
+            carMediaButtonPreferences = ::buildAndroidAutoButtons
         }
-        mediaSession =
-            MediaLibrarySession
-                .Builder(this, player, mediaLibrarySessionCallback)
-                .setSessionActivity(
-                    PendingIntent.getActivity(
-                        this,
-                        0,
-                        Intent(this, MainActivity::class.java),
-                        PendingIntent.FLAG_IMMUTABLE,
-                    ),
-                ).setBitmapLoader(CoilBitmapLoader(this, scope))
-                .build()
+        val mediaSessionBuilder = MediaLibrarySession.Builder(this, player, mediaLibrarySessionCallback)
+            .setBitmapLoader(CoilBitmapLoader(this, scope))
+        if (BuildConfig.DEVICE != "automotive") {
+            mediaSessionBuilder.setSessionActivity(
+                PendingIntent.getActivity(
+                    this,
+                    0,
+                    Intent(this, MainActivity::class.java),
+                    PendingIntent.FLAG_IMMUTABLE,
+                ),
+            )
+        }
+        mediaSession = mediaSessionBuilder.build()
         setMediaNotificationProvider(
             KongamusicMediaNotificationProvider(
                 context = this,
                 smallIconResId = R.drawable.small_icon,
             ),
         )
+        // Arm the platform notification pipeline. MediaSessionService only
+        // creates its internal notification controller — the Player.Listener
+        // that drives onUpdateNotification() on every playback change — when
+        // a MediaController connects through the session-service stub
+        // (MediaNotificationManager.addSession). This app's UI talks to the
+        // service through the plain local binder instead of a MediaController,
+        // so without an explicit registration nothing ever arms the pipeline
+        // and playback runs with no notification and no foreground promotion.
+        // The old self-referential MediaController from onCreate did this as a
+        // side effect (at the cost of a permanent self-binding that pinned
+        // hasBoundClients); addSession() registers the session directly, with
+        // no binding side effects, so idle-stop keeps working.
+        addSession(mediaSession)
 
         updateNotification()
+        scope.launch {
+            combine(
+                androidAutoSettings.configuration,
+                androidAutoSettings.networkState,
+            ) { configuration, networkState -> configuration to networkState }
+                .collect { (configuration, networkState) ->
+                    updateAndroidAutoButtons(configuration)
+                    mediaSession.notifyChildrenChanged(ROOT, 4, null)
+                    val homeItemCount = if (
+                        configuration.onlineRecommendations &&
+                        networkState.online &&
+                        (configuration.meteredPlayback || !networkState.metered)
+                    ) 5 else 4
+                    mediaSession.notifyChildrenChanged(HOME, homeItemCount, null)
+                    mediaSession.notifyChildrenChanged(LIBRARY, 5, null)
+                }
+        }
         player.repeatMode = REPEAT_MODE_OFF
 
-        val sessionToken = SessionToken(this, ComponentName(this, MusicService::class.java))
-        val controllerFuture = MediaController.Builder(this, sessionToken).buildAsync()
-        controllerFuture.addListener({ controllerFuture.get() }, MoreExecutors.directExecutor())
         scope.launch(Dispatchers.IO) {
             val prefs = dataStore.data.first()
             val repeatMode = prefs[RepeatModeKey] ?: REPEAT_MODE_OFF
@@ -1442,7 +1502,7 @@ class MusicService :
         ) { mediaMetadata, _ ->
             mediaMetadata
         }.collectLatest(ioScope) { mediaMetadata ->
-            if (mediaMetadata == null) return@collectLatest
+            if (mediaMetadata == null || mediaMetadata.isPodcast) return@collectLatest
 
             val stored = database.lyrics(mediaMetadata.id).first()
             val shouldFetch =
@@ -1466,6 +1526,44 @@ class MusicService :
             .collectLatest(scope) {
                 localPlayer.skipSilenceEnabled = it
                 secondaryCrossfadePlayer?.skipSilenceEnabled = it
+            }
+
+        // Audio effects screen playback speed + pitch matching. Pitch matched
+        // keeps the pitch at 1x (timestretched); the "vinyl" mode lets the
+        // pitch follow the speed. Both players get the same parameters so the
+        // crossfade handover stays seamless.
+        combine(
+            dataStore.data.map { it[AudioPlaybackSpeedKey] ?: 1.0f },
+            dataStore.data.map { it[AudioPlaybackSpeedPitchMatchKey] ?: false },
+            dataStore.data.map { it[AudioPlaybackPitchKey] ?: 1.0f },
+            dataStore.data.map { it[EqualizerAudioEffectsEnabledKey] ?: false },
+        ) { speed, pitchMatched, pitch, audioEffectsEnabled ->
+            // Playback speed + pitch live on the Audio effects tab and follow
+            // its master switch: nothing is applied to any song while it is
+            // off. Match-pitch keeps 1x (timestretched); vinyl mode follows
+            // the speed unless the user picked an explicit pitch offset.
+            val effectiveSpeed = if (audioEffectsEnabled) speed.coerceIn(0.5f, 2.0f) else 1.0f
+            val effectivePitch =
+                if (!audioEffectsEnabled) {
+                    1.0f
+                } else if (pitchMatched) {
+                    1.0f
+                } else if (pitch != 1.0f) {
+                    pitch.coerceIn(0.5f, 2.0f)
+                } else {
+                    effectiveSpeed
+                }
+            PlaybackParameters(effectiveSpeed, effectivePitch)
+        }.distinctUntilChanged()
+            .collectLatest(scope) { parameters ->
+                // Only touch the players when the parameters actually differ -
+                // avoids a needless re-configure on every service start.
+                if (localPlayer.playbackParameters != parameters) {
+                    localPlayer.playbackParameters = parameters
+                }
+                if (secondaryCrossfadePlayer?.playbackParameters != parameters) {
+                    secondaryCrossfadePlayer?.playbackParameters = parameters
+                }
             }
 
         dataStore.data
@@ -2362,6 +2460,11 @@ class MusicService :
     private fun ensurePresenceManager() {
         if (DiscordPresenceManager.isRunning() && lastPresenceToken != null) return
 
+        if (currentMediaMetadata.value?.isPodcast == true) {
+            requestDiscordSync(reason = "podcast_playback", force = true)
+            return
+        }
+
         scope.launch {
 
             if (!dataStore.get(EnableDiscordRPCKey, true)) {
@@ -2722,6 +2825,11 @@ class MusicService :
             releaseSecondaryCrossfadePlayer()
             return
         }
+        if (player.currentMetadata?.isPodcast == true) {
+            localPlayer.pauseAtEndOfMediaItems = false
+            releaseSecondaryCrossfadePlayer()
+            return
+        }
 
         val target = resolveCrossfadeTarget()
         val duration = player.duration
@@ -2874,11 +2982,16 @@ class MusicService :
         }.getOrNull()
     }
 
-    private fun createSecondaryCrossfadePlayer(): ExoPlayer =
-        ExoPlayer
+    private fun createSecondaryCrossfadePlayer(): ExoPlayer {
+        // Dedicated stereo-pan instance for the secondary sink; it receives the
+        // same settings broadcasts and dies with the player it belongs to.
+        val secondaryStereoPan = StereoPanAudioProcessor()
+        applyStereoPanSettingsTo(secondaryStereoPan, desiredEqSettings.value)
+        secondaryStereoPanProcessor = secondaryStereoPan
+        return ExoPlayer
             .Builder(this)
             .setMediaSourceFactory(createMediaSourceFactory())
-            .setRenderersFactory(createRenderersFactory())
+            .setRenderersFactory(createRenderersFactory(secondaryStereoPan))
             .setLoadControl(createCrossfadeLoadControl())
             .setTrackSelector(DefaultTrackSelector(this, SafeTrackSelectionFactory()))
             .setHandleAudioBecomingNoisy(true)
@@ -2893,6 +3006,7 @@ class MusicService :
                 setOffloadEnabled(false)
                 skipSilenceEnabled = localPlayer.skipSilenceEnabled
             }
+    }
 
     private fun startCrossfade(
         target: CrossfadeTarget,
@@ -3268,6 +3382,7 @@ class MusicService :
         val playerToRelease = secondaryCrossfadePlayer ?: return
         secondaryCrossfadePlayer = null
         secondaryCrossfadeTarget = null
+        secondaryStereoPanProcessor = null
         runCatching { playerToRelease.removeListener(secondaryCrossfadeListener) }
         runCatching { playerToRelease.stop() }
         runCatching { playerToRelease.clearMediaItems() }
@@ -3972,10 +4087,75 @@ class MusicService :
                         .build(),
                 )
             mediaSession.setCustomLayout(customLayout)
+            updateAndroidAutoButtons()
         } catch (e: Exception) {
             reportException(e)
         }
     }
+
+    private fun updateAndroidAutoButtons(
+        configuration: AndroidAutoConfiguration = androidAutoSettings.currentConfiguration(),
+    ) {
+        val buttons = buildAndroidAutoButtons(configuration)
+        mediaSession.connectedControllers
+            .filter { mediaLibrarySessionCallback.isCarController(mediaSession, it) }
+            .forEach { controller ->
+                mediaSession.setMediaButtonPreferences(controller, buttons)
+                mediaSession.setCustomLayout(controller, buttons)
+            }
+    }
+
+    private fun buildAndroidAutoButtons(configuration: AndroidAutoConfiguration): List<CommandButton> =
+        listOf(configuration.primaryAction, configuration.secondaryAction)
+            .filter { it != AndroidAutoCustomAction.NONE }
+            .distinct()
+            .map { action ->
+                when (action) {
+                    AndroidAutoCustomAction.LIKE -> CommandButton.Builder()
+                        .setDisplayName(
+                            getString(if (currentSong.value?.song?.liked == true) R.string.action_remove_like else R.string.action_like),
+                        )
+                        .setIconResId(
+                            if (currentSong.value?.song?.liked == true) R.drawable.favorite else R.drawable.favorite_border,
+                        )
+                        .setSessionCommand(CommandToggleLike)
+                        .setEnabled(currentSong.value != null)
+                        .build()
+                    AndroidAutoCustomAction.START_RADIO -> CommandButton.Builder()
+                        .setDisplayName(getString(R.string.start_radio))
+                        .setIconResId(R.drawable.radio)
+                        .setSessionCommand(CommandToggleStartRadio)
+                        .setEnabled(currentSong.value != null)
+                        .build()
+                    AndroidAutoCustomAction.SHUFFLE -> CommandButton.Builder()
+                        .setDisplayName(
+                            getString(if (player.shuffleModeEnabled) R.string.action_shuffle_off else R.string.action_shuffle_on),
+                        )
+                        .setIconResId(if (player.shuffleModeEnabled) R.drawable.shuffle_on else R.drawable.shuffle)
+                        .setSessionCommand(CommandToggleShuffle)
+                        .build()
+                    AndroidAutoCustomAction.REPEAT -> CommandButton.Builder()
+                        .setDisplayName(
+                            getString(
+                                when (player.repeatMode) {
+                                    REPEAT_MODE_ONE -> R.string.repeat_mode_one
+                                    REPEAT_MODE_ALL -> R.string.repeat_mode_all
+                                    else -> R.string.repeat_mode_off
+                                },
+                            ),
+                        )
+                        .setIconResId(
+                            when (player.repeatMode) {
+                                REPEAT_MODE_ONE -> R.drawable.repeat_one_on
+                                REPEAT_MODE_ALL -> R.drawable.repeat_on
+                                else -> R.drawable.repeat
+                            },
+                        )
+                        .setSessionCommand(CommandToggleRepeatMode)
+                        .build()
+                    AndroidAutoCustomAction.NONE -> error("None is not a media button")
+                }
+            }
 
     fun refreshPlaybackNotification() {
         updateNotification()
@@ -4140,7 +4320,6 @@ class MusicService :
         scope.launch(SilentHandler) {
             var autoLoadMoreEnabled = true
             try {
-                moe.kongamusic.App.startupReadiness.awaitReady()
                 autoLoadMoreEnabled = dataStore.getAsync(AutoLoadMoreKey, true)
                 val hideExplicit = shouldHideExplicitTracks()
                 val hideVideo = dataStore.get(HideVideoKey, false)
@@ -4488,6 +4667,16 @@ class MusicService :
         abandonAudioFocus()
         closeAudioEffectSession()
         consecutivePlaybackErr = 0
+        // Per-media-id resolution caches grow one entry per unique track played and were never
+        // pruned, so a long listening session leaked them indefinitely. A full stop clears the
+        // queue and leaves no active track, so every entry is now stale — drop them here. They
+        // repopulate on the next resolve at no correctness cost.
+        playbackUrlCache.clear()
+        remotePlaybackTrackingUrlCache.clear()
+        contentLengthCache.clear()
+        directStreamCache.clear()
+        audioNormalizationFactorCache.clear()
+        resolvedSourcesByMediaId.clear()
         if (clearPersistentState) {
             clearPersistedQueueFiles()
         }
@@ -6666,16 +6855,27 @@ class MusicService :
 
     private fun readEqSettingsFromPrefs(prefs: Preferences): EqSettings {
         val levels = decodeBandLevelsMb(prefs[EqualizerBandLevelsMbKey])
+        // The "Enable audio effects" master switch governs every ported DSP
+        // effect (the band equalizer keeps its own switch). With it off the
+        // user cannot customise the effects and nothing is applied to any
+        // song - the stored per-effect values are preserved so flipping the
+        // switch back on restores exactly what was configured.
+        val audioEffectsEnabled = prefs[EqualizerAudioEffectsEnabledKey] ?: false
         return EqSettings(
             enabled = prefs[EqualizerEnabledKey] ?: false,
             bandLevelsMb = levels,
-            outputGainEnabled = prefs[EqualizerOutputGainEnabledKey] ?: false,
+            outputGainEnabled = (prefs[EqualizerOutputGainEnabledKey] ?: false) && audioEffectsEnabled,
             outputGainMb = prefs[EqualizerOutputGainMbKey] ?: 0,
-            bassBoostEnabled = prefs[EqualizerBassBoostEnabledKey] ?: false,
+            bassBoostEnabled = (prefs[EqualizerBassBoostEnabledKey] ?: false) && audioEffectsEnabled,
             bassBoostStrength = (prefs[EqualizerBassBoostStrengthKey] ?: 0).coerceIn(0, 1000),
-            virtualizerEnabled = prefs[EqualizerVirtualizerEnabledKey] ?: false,
+            virtualizerEnabled = (prefs[EqualizerVirtualizerEnabledKey] ?: false) && audioEffectsEnabled,
             virtualizerStrength = (prefs[EqualizerVirtualizerStrengthKey] ?: 0).coerceIn(0, 1000),
-            autoHeadroomEnabled = prefs[EqualizerAutoHeadroomEnabledKey] ?: false,
+            autoHeadroomEnabled = (prefs[EqualizerAutoHeadroomEnabledKey] ?: false) && audioEffectsEnabled,
+            reverbEnabled = (prefs[EqualizerReverbEnabledKey] ?: false) && audioEffectsEnabled,
+            reverbPreset = EqReverbPreset.fromStorage(prefs[EqualizerReverbPresetKey] ?: 0).storageValue,
+            balance = if (audioEffectsEnabled) (prefs[EqualizerBalanceKey] ?: 0f).coerceIn(-1f, 1f) else 0f,
+            eightDEnabled = (prefs[Equalizer8DEnabledKey] ?: false) && audioEffectsEnabled,
+            eightDSpeedHz = (prefs[Equalizer8DSpeedKey] ?: 0.2f).coerceIn(0.03f, 0.25f),
         )
     }
 
@@ -6811,10 +7011,15 @@ class MusicService :
             loudnessEnhancer?.release()
         } catch (_: Exception) {
         }
+        try {
+            environmentalReverb?.release()
+        } catch (_: Exception) {
+        }
         equalizer = null
         bassBoost = null
         virtualizer = null
         loudnessEnhancer = null
+        environmentalReverb = null
         eqCapabilities.value = null
         equalizerPlaybackController.updateCapabilities(null)
     }
@@ -6853,6 +7058,7 @@ class MusicService :
         bassBoost = createAudioEffect("BassBoost", sessionId) { BassBoost(0, sessionId) }
         virtualizer = createAudioEffect("Virtualizer", sessionId) { Virtualizer(0, sessionId) }
         loudnessEnhancer = createAudioEffect("LoudnessEnhancer", sessionId) { LoudnessEnhancer(sessionId) }
+        environmentalReverb = createAudioEffect("EnvironmentalReverb", sessionId) { EnvironmentalReverb(0, sessionId) }
 
         equalizer?.let(::updateEqCapabilitiesFromEffect)
         applyEqSettingsToEffects(desiredEqSettings.value)
@@ -6868,6 +7074,20 @@ class MusicService :
             .onFailure { error ->
                 Timber.tag(TAG).w(error, "%s initialization failed for audio session %d", name, sessionId)
             }.getOrNull()
+
+    private fun applyStereoPanSettingsTo(
+        processor: StereoPanAudioProcessor,
+        settings: EqSettings,
+    ) {
+        // Balance and 8D are independent effects: they no longer require the
+        // band-equalizer master switch to be on (the processor itself only
+        // activates for its own flags).
+        processor.setBalance(settings.balance)
+        processor.setRotation(
+            enabled = settings.eightDEnabled,
+            speedHz = settings.eightDSpeedHz,
+        )
+    }
 
     private fun applyEqSettingsToEffects(settings: EqSettings) {
         val eq = equalizer ?: return
@@ -6888,12 +7108,12 @@ class MusicService :
         }
 
         bassBoost?.let { bb ->
-            runCatching { bb.enabled = settings.enabled && settings.bassBoostEnabled }
+            runCatching { bb.enabled = settings.bassBoostEnabled }
             runCatching { bb.setStrength(settings.bassBoostStrength.toShort()) }
         }
 
         virtualizer?.let { v ->
-            runCatching { v.enabled = settings.enabled && settings.virtualizerEnabled }
+            runCatching { v.enabled = settings.virtualizerEnabled }
             runCatching { v.setStrength(settings.virtualizerStrength.toShort()) }
         }
 
@@ -6906,7 +7126,109 @@ class MusicService :
                     else -> 0
                 }
             runCatching { le.setTargetGain(gainMb) }
-            runCatching { le.enabled = settings.enabled && (settings.autoHeadroomEnabled || settings.outputGainEnabled) }
+            runCatching { le.enabled = settings.autoHeadroomEnabled || settings.outputGainEnabled }
+        }
+
+        environmentalReverb?.let { reverb ->
+            applyReverbPreset(reverb, EqReverbPreset.fromStorage(settings.reverbPreset))
+            runCatching { reverb.enabled = settings.reverbEnabled }
+        }
+
+        listOfNotNull(primaryStereoPanProcessor, secondaryStereoPanProcessor).forEach { stereoPan ->
+            applyStereoPanSettingsTo(stereoPan, settings)
+        }
+    }
+
+    private fun applyReverbPreset(
+        reverb: EnvironmentalReverb,
+        preset: EqReverbPreset,
+    ) {
+        // Parameter values ported verbatim from SpatialFlow's AudioPlaybackService.
+        runCatching {
+            when (preset) {
+                EqReverbPreset.NONE -> {
+                    reverb.decayTime = 100
+                    reverb.reverbLevel = -9000
+                }
+
+                EqReverbPreset.SMALL_ROOM -> {
+                    reverb.roomLevel = -1500
+                    reverb.roomHFLevel = -100
+                    reverb.decayTime = 4000
+                    reverb.decayHFRatio = 1200
+                    reverb.reflectionsLevel = 0
+                    reverb.reflectionsDelay = 50
+                    reverb.reverbLevel = 500
+                    reverb.reverbDelay = 40
+                    reverb.diffusion = 1000
+                    reverb.density = 1000
+                }
+
+                EqReverbPreset.MEDIUM_ROOM -> {
+                    reverb.roomLevel = -1500
+                    reverb.roomHFLevel = 0
+                    reverb.decayTime = 6000
+                    reverb.decayHFRatio = 1400
+                    reverb.reflectionsLevel = 200
+                    reverb.reflectionsDelay = 80
+                    reverb.reverbLevel = 700
+                    reverb.reverbDelay = 60
+                    reverb.diffusion = 1000
+                    reverb.density = 1000
+                }
+
+                EqReverbPreset.LARGE_ROOM -> {
+                    reverb.roomLevel = -1500
+                    reverb.roomHFLevel = 0
+                    reverb.decayTime = 8000
+                    reverb.decayHFRatio = 1600
+                    reverb.reflectionsLevel = 400
+                    reverb.reflectionsDelay = 120
+                    reverb.reverbLevel = 900
+                    reverb.reverbDelay = 80
+                    reverb.diffusion = 1000
+                    reverb.density = 1000
+                }
+
+                EqReverbPreset.MEDIUM_HALL -> {
+                    reverb.roomLevel = -1500
+                    reverb.roomHFLevel = 0
+                    reverb.decayTime = 12000
+                    reverb.decayHFRatio = 1800
+                    reverb.reflectionsLevel = 600
+                    reverb.reflectionsDelay = 160
+                    reverb.reverbLevel = 1100
+                    reverb.reverbDelay = 100
+                    reverb.diffusion = 1000
+                    reverb.density = 1000
+                }
+
+                EqReverbPreset.LARGE_HALL -> {
+                    reverb.roomLevel = -1500
+                    reverb.roomHFLevel = 0
+                    reverb.decayTime = 16000
+                    reverb.decayHFRatio = 1900
+                    reverb.reflectionsLevel = 800
+                    reverb.reflectionsDelay = 220
+                    reverb.reverbLevel = 1300
+                    reverb.reverbDelay = 100
+                    reverb.diffusion = 1000
+                    reverb.density = 1000
+                }
+
+                EqReverbPreset.PLATE -> {
+                    reverb.roomLevel = -1500
+                    reverb.roomHFLevel = 0
+                    reverb.decayTime = 20000
+                    reverb.decayHFRatio = 2000
+                    reverb.reflectionsLevel = 1000
+                    reverb.reflectionsDelay = 300
+                    reverb.reverbLevel = 1600
+                    reverb.reverbDelay = 100
+                    reverb.diffusion = 1000
+                    reverb.density = 1000
+                }
+            }
         }
     }
 
@@ -7215,12 +7537,12 @@ class MusicService :
             Timber.tag("MusicService").d("Skipping remote YouTube history for %s (sync disabled)", mediaId)
             return false
         }
-        if (database
-                .song(mediaId)
-                .first()
-                ?.song
-                ?.isLocal == true
-        ) {
+        val dbSong = database.song(mediaId).first()?.song
+        if (dbSong?.isLocal == true) {
+            return false
+        }
+        if (dbSong?.isPodcast == true) {
+            Timber.tag("MusicService").d("Skipping remote YouTube history for %s (podcast episode)", mediaId)
             return false
         }
 
@@ -7681,6 +8003,15 @@ class MusicService :
                 applyEffectiveVolumeImmediately(sourceSwitchExpectedVolume)
                 ensureAudiblePlaybackVolume("source_switch_ready")
             }
+            // A seek's re-buffer has just completed. The reactive volume pipeline re-fired during
+            // BUFFERING->READY and may have pinned the primary player low; restore it now instead
+            // of waiting up to 15s for the audible-volume watchdog. Guarded + idempotent.
+            if (pendingSeekVolumeReassert) {
+                pendingSeekVolumeReassert = false
+                seekVolumeReassertJob?.cancel()
+                seekVolumeReassertJob = null
+                ensureAudiblePlaybackVolume("seek_ready")
+            }
             updateAudiblePlaybackRecovery()
             scheduleCrossfade()
         }
@@ -7892,6 +8223,7 @@ class MusicService :
             val timelineDuration = player.duration
             val timelinePosition = player.currentPosition
             scope.launch {
+                if (timelineMetadata?.isPodcast == true) return@launch
                 try {
                     val song =
                         if (timelineMediaId != null) {
@@ -7996,8 +8328,9 @@ class MusicService :
         }
 
         if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED)) {
-
-            scrobbleManager?.onPlayerStateChanged(player.isPlaying, player.currentMetadata, duration = player.duration)
+            if (player.currentMetadata?.isPodcast != true) {
+                scrobbleManager?.onPlayerStateChanged(player.isPlaying, player.currentMetadata, duration = player.duration)
+            }
         }
 
         if (events.contains(Player.EVENT_PLAY_WHEN_READY_CHANGED) && player.mediaItemCount > 0) {
@@ -8021,10 +8354,33 @@ class MusicService :
             if (!crossfadeHandoffInProgress) {
                 cancelCrossfade(resetVolume = true, resetPauseAtEnd = true)
             }
+            // A seek forces a re-buffer; the BUFFERING->READY transition re-fires the reactive
+            // volume pipeline (playerVolume x normalize x focus), which can pin the primary
+            // player's volume low AFTER the reset above already ran — the same re-fire the
+            // source-switch path guards against, but seeks had none, so the stream stayed silent
+            // until the 15s audible-volume watchdog. Reassert at the seek's READY (above) and,
+            // for an in-buffer seek that never leaves READY, once shortly after.
+            pendingSeekVolumeReassert = true
+            scheduleSeekVolumeReassert()
         }
         if (!isCrossfading && !crossfadeHandoffInProgress) {
             scheduleCrossfade()
         }
+    }
+
+    /**
+     * Fast-path recovery for a seek that stays within the buffered region: no BUFFERING->READY
+     * fires, so the STATE_READY seek hook never runs. [ensureAudiblePlaybackVolume] only restores
+     * a primary player that is muted but should be audible, and no-ops during a real crossfade, so
+     * this cannot introduce a spurious volume change.
+     */
+    private fun scheduleSeekVolumeReassert() {
+        seekVolumeReassertJob?.cancel()
+        seekVolumeReassertJob =
+            scope.launch {
+                delay(SEEK_VOLUME_REASSERT_MS)
+                ensureAudiblePlaybackVolume("seek_reassert")
+            }
     }
 
     override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
@@ -8542,7 +8898,7 @@ class MusicService :
         if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
             return
         }
-        val preloadCount = dataStore.get(PreloadSongsCountKey, 0)
+        val preloadCount = dataStore.get(PreloadSongsCountKey, DEFAULT_PRELOAD_SONGS_COUNT)
         if (preloadCount <= 0) return
         val currentIndex = player.currentMediaItemIndex
         if (currentIndex < 0) return
@@ -8555,7 +8911,6 @@ class MusicService :
     }
 
     private suspend fun preloadUpcomingPlaybackStreams(upcoming: List<MediaItem>) {
-        moe.kongamusic.App.startupReadiness.awaitReady()
         for (item in upcoming) {
             if (!currentCoroutineContext().isActive) return
             runCatching { preloadPlaybackStream(item) }
@@ -8709,7 +9064,18 @@ class MusicService :
         val artists: List<String>,
         val album: String?,
         val durationMs: Long?,
-
+        /**
+         * ISRC of the wanted recording, when the queue item carried one (catalogue imports only).
+         * A source that can look up by ISRC uses it for an exact match and skips its text search.
+         */
+        val isrc: String? = null,
+        /**
+         * When non-null, the Qobuz resolver skips its title/artist search and
+         * downloads this exact trackId. Set when the user picks a specific
+         * Qobuz track from the "Play from" source-search popup — the mediaId
+         * encodes the trackId as "qobuz:{trackId}" and [resolveMultiSourceDataSpec]
+         * extracts it into this field.
+         */
         val directQobuzTrackId: String? = null,
 
         val directQobuzBackupVideoId: String? = null,
@@ -8723,8 +9089,9 @@ class MusicService :
                 AudioSourceType.QOBUZ to dataStore.get(QobuzEnabledKey, false),
                 AudioSourceType.QOBUZ_BACKUP to dataStore.get(QobuzBackupEnabledKey, false),
                 AudioSourceType.DEEZER to dataStore.get(DeezerEnabledKey, false),
-                AudioSourceType.JIOSAAVN to dataStore.get(JioSaavnEnabledKey, false),
                 AudioSourceType.APPLE to dataStore.get(AppleMusicSourceEnabledKey, true),
+                AudioSourceType.AMAZON to dataStore.get(AmazonEnabledKey, false),
+                AudioSourceType.JIOSAAVN to dataStore.get(JioSaavnEnabledKey, false),
                 AudioSourceType.YOUTUBE to true,
             )
 
@@ -8744,6 +9111,7 @@ class MusicService :
             AudioSourceType.QOBUZ_BACKUP -> dataStore.get(QobuzBackupEnabledKey, false)
             AudioSourceType.DEEZER -> dataStore.get(DeezerEnabledKey, false)
             AudioSourceType.APPLE -> dataStore.get(AppleMusicSourceEnabledKey, true)
+            AudioSourceType.AMAZON -> dataStore.get(AmazonEnabledKey, false)
             AudioSourceType.JIOSAAVN -> dataStore.get(JioSaavnEnabledKey, false)
         }
 
@@ -8766,6 +9134,10 @@ class MusicService :
             song?.song?.albumName
                 ?: song?.album?.title
                 ?: queuedMetadata?.album?.title
+        // ISRC comes only from the in-memory queue metadata: the song table has no ISRC column, and
+        // it is only ever set for catalogue-sourced items (Spotify import), which is exactly where
+        // an exact-recording match beats a title/artist search.
+        val isrc = queuedMetadata?.isrc?.takeIf { it.isNotBlank() }
         val durationMs =
             song?.song?.duration
                 ?.takeIf { it > 0 }
@@ -8788,6 +9160,7 @@ class MusicService :
             artists = artists,
             album = album,
             durationMs = durationMs,
+            isrc = isrc,
             directQobuzTrackId = directQobuzTrackId,
             directQobuzBackupVideoId = directQobuzBackupVideoId,
         )
@@ -9008,7 +9381,6 @@ class MusicService :
             Timber.tag("MusicService").d("Multi-source skip: %s is a local/telegram media id", mediaId)
             return null
         }
-        runBlocking { moe.kongamusic.App.startupReadiness.awaitReady() }
         val qobuzTrackIdRaw = runCatching {
             runBlocking { dataStore.data.first()[SongSourceQobuzTrackIdKey] }
         }.getOrNull()
@@ -9133,6 +9505,10 @@ class MusicService :
                             query,
                             trusted = overrideIsSourceOverride && override == AudioSourceType.APPLE,
                         )
+                    // Amazon serves CENC-protected fragmented MP4 and this fork ships no
+                    // decryption step (see AmazonEnabledKey in PreferenceKeys.kt), so there is
+                    // no provider to call here — always fall through to the next source.
+                    AudioSourceType.AMAZON -> null
                     AudioSourceType.JIOSAAVN -> resolveJioSaavnStream(query)
                     AudioSourceType.YOUTUBE -> null
                 }
@@ -9521,7 +9897,9 @@ class MusicService :
                             title = query.title,
                             artists = query.artists,
                             album = query.album,
-                            isrc = null,
+                            // Tidal's resolver already scores an exact-ISRC hit above any text match
+                            // (see exactIsrc/exactIsrcOnly); it was only ever being handed null here.
+                            isrc = query.isrc,
                             durationMs = query.durationMs,
                         ),
                     cacheDir = cacheDir,
@@ -9687,6 +10065,7 @@ class MusicService :
                                 artists = query.artists,
                                 album = query.album,
                                 durationMs = query.durationMs,
+                                isrc = query.isrc,
                             ),
                         format = quality.toFormatName(),
                     )?.let { resolved ->
@@ -9965,7 +10344,6 @@ class MusicService :
             return dataSpec
         }
         val mediaId = dataSpec.key ?: return dataSpec
-        runBlocking { moe.kongamusic.App.startupReadiness.awaitReady() }
         val lowDataModeActive = isLowDataModeActive()
         val storedFormat =
             runBlocking(Dispatchers.IO) {
@@ -10739,7 +11117,7 @@ class MusicService :
             ).setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
-    private fun createRenderersFactory() =
+    private fun createRenderersFactory(stereoPanProcessor: StereoPanAudioProcessor) =
         object : DefaultRenderersFactory(this) {
             init {
 
@@ -10759,6 +11137,7 @@ class MusicService :
                     DefaultAudioSink.DefaultAudioProcessorChain(
                         SonicAudioProcessor(),
                         HapticsPcmProcessor(engineProvider = { musicHapticsEngine }),
+                        stereoPanProcessor,
                     ),
                 ).build()
         }
@@ -10858,6 +11237,7 @@ class MusicService :
         mediaMetadata: MediaMetadata?,
         durationMs: Long,
     ): Song? {
+        if (mediaMetadata?.isPodcast == true || dbSong?.song?.isPodcast == true) return null
         val metadataSong = mediaMetadata?.let { createTransientSongFromMedia(it) }
         val song =
             when {
@@ -10920,6 +11300,7 @@ class MusicService :
                 albumName = media.album?.title,
                 explicit = media.explicit,
                 isMusicVideo = media.isMusicVideo,
+                isPodcast = media.isPodcast,
                 isLocal = media.id.isLocalMediaId(),
             )
 
@@ -11201,7 +11582,9 @@ class MusicService :
         unregisterBluetoothReceiver()
         unregisterMuteRecoveryObserver()
         try {
-            scope.launch { stopTogetherInternal() }
+            // NonCancellable: this must survive the scopeJob.cancel() below —
+            // a plain scope.launch is cancelled before its body ever runs.
+            scope.launch(NonCancellable) { stopTogetherInternal() }
         } catch (_: Exception) {
         }
         try {
@@ -11223,6 +11606,7 @@ class MusicService :
             }
         } catch (_: Exception) {
         }
+        mediaLibrarySessionCallback.release()
         try {
             mediaSession.release()
         } catch (_: Exception) {
@@ -11238,6 +11622,14 @@ class MusicService :
             initialBufferRecoveryJob?.cancel()
             player.release()
             castPlaybackRepository.releasePlayer(player)
+        } catch (_: Exception) {
+        }
+        // The sync worker is a child of scopeJob and may be cancelled at the
+        // receive below before it drains the service_destroy request. Stop the
+        // manager directly so the static holder drops its listener (which
+        // captures this@MusicService) even if that race is lost. Idempotent.
+        try {
+            DiscordPresenceManager.stop()
         } catch (_: Exception) {
         }
         scopeJob.cancel()
@@ -11429,6 +11821,7 @@ class MusicService :
 
         const val ROOT = "root"
         const val HOME = "home"
+        const val LIBRARY = "library"
         const val HOME_QUICK_PICKS = "home_quick_picks"
 
         private const val TIDAL_CACHE_KEY_PREFIX = "tidal:"
@@ -11490,6 +11883,11 @@ class MusicService :
         const val DEVICE_MUTE_PLAYBACK_NOTICE_INTERVAL_MS = 1_200L
 
         const val SOURCE_SWITCH_VOLUME_REASSERT_MS = 250L
+
+        // Fast-path reassert for a seek that stays within the buffered region (no
+        // BUFFERING->READY, so the STATE_READY seek hook never fires). Covers the case the
+        // 15s audible-volume watchdog would otherwise be the only recovery for.
+        const val SEEK_VOLUME_REASSERT_MS = 300L
         const val MIN_AUDIO_FOCUS_VOLUME_FACTOR = 0.2f
         const val MIN_AUDIO_NORMALIZATION_FACTOR = 0.25f
         const val MAX_AUDIO_NORMALIZATION_FACTOR = 1.414f

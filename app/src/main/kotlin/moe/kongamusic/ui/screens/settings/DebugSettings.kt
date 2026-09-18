@@ -92,6 +92,7 @@ import moe.kongamusic.ui.component.SwitchPreference
 import moe.kongamusic.ui.utils.backToMain
 import moe.kongamusic.utils.makeTimeString
 import moe.kongamusic.utils.rememberPreference
+import moe.kongamusic.constants.ShowCodecOnPlayerKey
 import kotlin.math.roundToInt
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -128,7 +129,7 @@ fun DebugSettings(navController: NavController) {
 
     val (showCodecOnPlayer, onShowCodecOnPlayerChange) =
         rememberPreference(
-            key = booleanPreferencesKey("show_codec_on_player"),
+            key = ShowCodecOnPlayerKey,
             defaultValue = false,
         )
 

@@ -24,6 +24,8 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.TimeoutException
 import kotlinx.coroutines.supervisorScope
 import moe.kongamusic.R
 import moe.kongamusic.aicontentfilter.FilterAiContentUseCase
@@ -230,6 +232,11 @@ class HomeViewModel
         private val loadAiContentFilterPolicy: LoadAiContentFilterPolicyUseCase,
         private val filterAiContent: FilterAiContentUseCase,
     ) : ViewModel() {
+    private companion object {
+        private const val HOME_LOAD_TIMEOUT_MS = 90_000L
+
+        private const val REFRESH_STUCK_WATCHDOG_MS = 120_000L
+    }
         private val isRefreshing = MutableStateFlow(false)
         private val isLoading = MutableStateFlow(false)
         private val isInitialLoadComplete = MutableStateFlow(false)
@@ -391,6 +398,7 @@ class HomeViewModel
         private var loadMoreJob: Job? = null
         private val remoteRequests = HomeRequestGate()
         private val reloadRequests = MutableStateFlow(0L to false)
+        private val refreshStartedAtMs = java.util.concurrent.atomic.AtomicLong(0L)
 
         private fun requestReload(manual: Boolean = false, clearAccount: Boolean = false) {
             val generation = remoteRequests.next()
@@ -408,11 +416,6 @@ class HomeViewModel
             }
         }
 
-        private fun filterHomeChips(chips: List<HomePage.Chip>?): List<HomePage.Chip>? =
-            chips?.filterNot {
-                it.title.contains("podcasts", ignoreCase = true)
-            }
-
         private fun HomePage.extractQuickPicks(): Pair<HomePage, HomePage.Section?> {
             val quickPicksIndex = sections.indexOfFirst { section ->
                 section.title.equals(context.getString(R.string.quick_picks), ignoreCase = true) ||
@@ -424,7 +427,7 @@ class HomeViewModel
         }
 
         private fun List<Song>.toQuickPickSample(): List<Song> =
-            filter { song -> song.artists.none { it.blockedAt != null } }
+            filter { song -> !song.song.isPodcast && song.artists.none { it.blockedAt != null } }
                 .distinctBy { it.id }
                 .shuffled()
                 .take(20)
@@ -613,7 +616,6 @@ class HomeViewModel
             loadError.value = null
 
             try {
-                moe.kongamusic.App.startupReadiness.awaitReady()
                 val aiContentFilterPolicy = loadAiContentFilterPolicy()
                 supervisorScope {
                     val hideExplicit = context.dataStore.getAsync(HideExplicitKey, false)
@@ -628,7 +630,7 @@ class HomeViewModel
                             database
                                 .forgottenFavorites()
                                 .first()
-                                .filter { song -> song.artists.none { it.blockedAt != null } }
+                                .filter { song -> !song.song.isPodcast && song.artists.none { it.blockedAt != null } }
                                 .filter { song -> song.id !in blockedSongIds }
                                 .shuffled()
                                 .take(20)
@@ -650,7 +652,7 @@ class HomeViewModel
                             database
                                 .mostPlayedSongs(fromTimeStamp, limit = 15, offset = 5)
                                 .first()
-                                .filter { song -> song.artists.none { it.blockedAt != null } }
+                                .filter { song -> !song.song.isPodcast && song.artists.none { it.blockedAt != null } }
                                 .shuffled()
                                 .take(10)
                         val keepListeningAlbums =
@@ -680,7 +682,7 @@ class HomeViewModel
                                 currentCoroutineContext().ensureActive()
                                 val filteredPage =
                                     page.copy(
-                                        chips = filterHomeChips(page.chips),
+                                        chips = page.chips,
                                         sections =
                                             page.sections.map { section ->
                                                 section.copy(
@@ -783,7 +785,7 @@ class HomeViewModel
                 database
                     .mostPlayedSongs(fromTimeStamp, limit = 10)
                     .first()
-                    .filter { it.album != null }
+                    .filter { !it.song.isPodcast && it.album != null }
                     .shuffled()
                     .take(2)
                     .mapNotNull { song ->
@@ -1013,7 +1015,19 @@ class HomeViewModel
         }
 
         private fun refresh() {
-            if (!isRefreshing.compareAndSet(false, true)) return
+            if (!isRefreshing.compareAndSet(false, true)) {
+                // Escape hatch: a load that hung forever (a stalled network call
+                // with no timeout) leaves isRefreshing stuck true and every later
+                // pull-to-refresh silently no-ops at this compareAndSet — the
+                // "refreshing the home page doesn't refresh it" report. After the
+                // watchdog window a new manual refresh is allowed through.
+                val startedAt = refreshStartedAtMs.get()
+                val stuck = startedAt != 0L && System.currentTimeMillis() - startedAt > REFRESH_STUCK_WATCHDOG_MS
+                if (!stuck) return
+                isRefreshing.value = false
+                if (!isRefreshing.compareAndSet(false, true)) return
+            }
+            refreshStartedAtMs.set(System.currentTimeMillis())
             requestReload(manual = true)
         }
 
@@ -1080,10 +1094,19 @@ class HomeViewModel
 
             viewModelScope.launch(Dispatchers.IO) {
                 reloadRequests.collectLatest { (generation, manual) ->
+                    if (!manual) {
+                        // An auto reload (region / AI-filter / blocked-song
+                        // observers) arriving mid-manual-refresh used to CANCEL
+                        // the manual load via collectLatest and drop its commit —
+                        // the spinner reset but the visible page never changed.
+                        // Wait for the in-flight manual refresh to land first.
+                        isRefreshing.first { !it }
+                    }
                     recommendationJob?.cancelAndJoin()
                     chipLoadJob?.cancelAndJoin()
                     loadMoreJob?.cancelAndJoin()
                     isRefreshing.value = manual
+                    if (manual) refreshStartedAtMs.set(System.currentTimeMillis())
                     try {
                         kotlinx.coroutines.coroutineScope {
                             remoteRequests.commit(generation) {
@@ -1092,13 +1115,20 @@ class HomeViewModel
                                 previousRemoteQuickPicks.value = null
                             }
                             if (manual) launch { refreshQuickPicks() }
-                            load(generation)
+                            val loaded =
+                                withTimeoutOrNull(HOME_LOAD_TIMEOUT_MS) {
+                                    load(generation)
+                                }
+                            if (loaded == null) {
+                                reportException(TimeoutException("home load timed out after ${HOME_LOAD_TIMEOUT_MS / 1000}s"))
+                            }
                         }
                     } catch (error: CancellationException) {
                         throw error
                     } catch (error: Exception) {
                         reportException(error)
                     } finally {
+                        refreshStartedAtMs.set(0L)
                         isRefreshing.value = false
                     }
                 }
@@ -1143,7 +1173,6 @@ class HomeViewModel
             }
 
             viewModelScope.launch(Dispatchers.IO) {
-                moe.kongamusic.App.startupReadiness.awaitReady()
                 var previousAccount: Pair<String?, String?>? = null
                 context.dataStore.data
                     .map { it[InnerTubeCookieKey] to it[DataSyncIdKey] }
@@ -1169,9 +1198,7 @@ class HomeViewModel
 
                                 if (loginTransition && context.dataStore.getAsync(YtmSyncKey, true)) {
                                     screenState.first { it !is HomeScreenState.Loading }
-                                    moe.kongamusic.App.startupReadiness.runOptional {
-                                        syncUtils.performFullSync()
-                                    }
+                                    syncUtils.performFullSync()
                                 }
                             } else {
                                 clearAccountData()

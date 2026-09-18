@@ -76,6 +76,8 @@ import moe.kongamusic.ui.menu.YouTubePlaylistMenu
 import moe.kongamusic.ui.menu.YouTubeSongMenu
 import moe.kongamusic.ui.utils.backToMain
 import moe.kongamusic.viewmodels.ArtistItemsViewModel
+import moe.kongamusic.innertube.models.EpisodeItem
+import moe.kongamusic.innertube.models.PodcastItem
 import androidx.compose.runtime.getValue
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -179,6 +181,8 @@ fun ArtistItemsScreen(
                                                 onDismiss = menuState::dismiss,
                                             )
                                         }
+
+                                        is PodcastItem, is EpisodeItem -> Unit
                                     }
                                 }
                             },
@@ -223,6 +227,19 @@ fun ArtistItemsScreen(
 
                                     is PlaylistItem -> {
                                         navController.navigate("online_playlist/${item.id}")
+                                    }
+
+                                    is PodcastItem -> {
+                                        navController.navigate("podcast/${android.net.Uri.encode(item.browseId)}")
+                                    }
+
+                                    is EpisodeItem -> {
+                                        playerConnection.playQueue(
+                                            YouTubeQueue(
+                                                item.endpoint,
+                                                item.toMediaMetadata(),
+                                            ),
+                                        )
                                     }
                                 }
                             },
@@ -286,6 +303,19 @@ fun ArtistItemsScreen(
                                         is PlaylistItem -> {
                                             navController.navigate("online_playlist/${item.id}")
                                         }
+
+                                        is PodcastItem -> {
+                                            navController.navigate("podcast/${android.net.Uri.encode(item.browseId)}")
+                                        }
+
+                                        is EpisodeItem -> {
+                                            playerConnection.playQueue(
+                                                YouTubeQueue(
+                                                    item.endpoint,
+                                                    item.toMediaMetadata(),
+                                                ),
+                                            )
+                                        }
                                     }
                                 },
                                 onLongClick = {
@@ -322,6 +352,8 @@ fun ArtistItemsScreen(
                                                     onDismiss = menuState::dismiss,
                                                 )
                                             }
+
+                                            is PodcastItem, is EpisodeItem -> Unit
                                         }
                                     }
                                 },

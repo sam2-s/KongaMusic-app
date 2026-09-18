@@ -140,14 +140,18 @@ import moe.kongamusic.ui.screens.HomeTopFadeBlur
 import moe.kongamusic.ui.screens.LocalHomeHazeState
 import moe.kongamusic.ui.screens.LocalSearchHazeState
 import moe.kongamusic.ui.screens.LocalLibraryHazeState
+import androidx.compose.ui.graphics.luminance
 import dev.chrisbanes.haze.HazeState
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -260,6 +264,7 @@ import moe.kongamusic.constants.StopMusicOnTaskClearKey
 import moe.kongamusic.constants.TabletModeEnabledKey
 import moe.kongamusic.constants.UiScaleFactorKey
 import moe.kongamusic.constants.UseSystemFontKey
+import moe.kongamusic.constants.WelcomeSeenKey
 import moe.kongamusic.db.MusicDatabase
 import moe.kongamusic.db.entities.SearchHistory
 import moe.kongamusic.extensions.toMediaItem
@@ -330,6 +335,7 @@ import moe.kongamusic.ui.screens.Screens
 import moe.kongamusic.ui.screens.buildLoginRoute
 import moe.kongamusic.ui.screens.navigationBuilder
 import moe.kongamusic.ui.screens.onboarding.OnboardingRoute
+import moe.kongamusic.ui.screens.onboarding.WelcomeScreen
 import moe.kongamusic.ui.screens.search.LocalSearchScreen
 import moe.kongamusic.ui.screens.search.OnlineSearchResultArgument
 import moe.kongamusic.ui.screens.search.OnlineSearchResultRoutePrefix
@@ -364,6 +370,9 @@ import moe.kongamusic.viewmodels.HomeViewModel
 import moe.kongamusic.viewmodels.NetworkBannerViewModel
 import moe.kongamusic.viewmodels.NewsViewModel
 import moe.kongamusic.viewmodels.OnlineSearchSort
+import com.kyant.backdrop.effects.colorControls
+import moe.kongamusic.ui.theme.PlayerColorExtractor
+import moe.kongamusic.utils.Updater
 import java.util.Locale
 import javax.inject.Inject
 
@@ -417,10 +426,8 @@ class MainActivity : ComponentActivity() {
             }
 
             override fun onServiceDisconnected(name: ComponentName?) {
-                pendingAodModeJob?.cancel()
-                pendingAodModeJob = null
-                playerConnection?.dispose()
-                playerConnection = null
+                isMusicServiceBound = false
+                disposePlayerConnection()
             }
         }
 
@@ -498,7 +505,6 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         serviceBindingJob = lifecycleScope.launch {
             try {
-                App.startupReadiness.awaitReady()
                 if (!isMusicServiceBound) {
                     isMusicServiceBound = bindService(
                         Intent(this@MainActivity, MusicService::class.java),
@@ -521,11 +527,28 @@ class MainActivity : ComponentActivity() {
             service.clearResolvedSources(currentMediaId)
         }
 
+        // Every-launch background pool refresh — silent, throttled to one
+        // server fetch per 10 minutes so restarts never hammer the feed.
         lifecycleScope.launch(Dispatchers.IO) {
-            App.startupReadiness.runOptional {
-                runCatching { PoolAccountManager.refresh(this@MainActivity, force = false) }
-            }
+            runCatching { PoolAccountManager.refreshForLaunch(this@MainActivity) }
         }
+    }
+
+    /**
+     * Drops the current [PlayerConnection]. Safe to call repeatedly.
+     *
+     * unbindService() does NOT trigger onServiceDisconnected — Android only
+     * delivers that callback on a service crash — so every clean unbind path
+     * must dispose here, or the connection stays registered as a listener on
+     * the service's long-lived player and pins this Activity (plus its whole
+     * Compose tree) until the service itself dies. One leaked connection
+     * accumulates per background/foreground cycle without this.
+     */
+    private fun disposePlayerConnection() {
+        pendingAodModeJob?.cancel()
+        pendingAodModeJob = null
+        playerConnection?.dispose()
+        playerConnection = null
     }
 
     private fun safeUnbindMusicService() {
@@ -538,6 +561,7 @@ class MainActivity : ComponentActivity() {
         } finally {
             isMusicServiceBound = false
         }
+        disposePlayerConnection()
     }
 
     override fun onStop() {
@@ -562,10 +586,9 @@ class MainActivity : ComponentActivity() {
             safeUnbindMusicService()
             stopService(Intent(this, MusicService::class.java))
         }
-        pendingAodModeJob?.cancel()
-        pendingAodModeJob = null
-        playerConnection?.dispose()
-        playerConnection = null
+        // onStop's unbind already disposed; safety net for any path that
+        // reaches destruction with a live connection.
+        disposePlayerConnection()
         safeUnbindMusicService()
     }
 
@@ -711,12 +734,6 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            val startupResult by App.startupReadiness.result.collectAsStateWithLifecycle()
-            LaunchedEffect(Unit) {
-                androidx.compose.runtime.withFrameNanos { }
-                androidx.compose.runtime.withFrameNanos { }
-                App.startupReadiness.onFirstFrame()
-            }
             LaunchedEffect(Unit) {
                 while (playerConnection == null) {
                     delay(100)
@@ -767,7 +784,7 @@ class MainActivity : ComponentActivity() {
             val hideStatusBar by rememberPreference(HideStatusBarKey, defaultValue = false)
             val navigationBarStyle by rememberEnumPreference(
                 NavigationBarStyleKey,
-                defaultValue = NavigationBarStyle.DEFAULT,
+                defaultValue = NavigationBarStyle.FLOATING,
             )
             val navigationBarFrostedBlur by rememberPreference(
                 NavigationBarFrostedBlurKey,
@@ -849,6 +866,14 @@ class MainActivity : ComponentActivity() {
                                             .Builder(this@MainActivity)
                                             .data(song.thumbnailUrl)
                                             .allowHardware(false)
+                                            // Dominant-color extraction needs a
+                                            // thumbnail, not the full-res image —
+                                            // without this every track change
+                                            // decodes a multi-MB software bitmap.
+                                            .size(
+                                                PlayerColorExtractor.Config.IMAGE_SIZE,
+                                                PlayerColorExtractor.Config.IMAGE_SIZE,
+                                            )
                                             .build(),
                                     )
                                 val extractedColor =
@@ -887,20 +912,6 @@ class MainActivity : ComponentActivity() {
                 fontPreference = fontPreference,
                 customFontUri = customFontUri,
             ) {
-                if (startupResult?.isSuccess != true) {
-                    Surface(Modifier.fillMaxSize()) {
-                        if (startupResult == null) {
-                            moe.kongamusic.ui.screens.HomeSkeletonFeed(
-                                contentPadding = WindowInsets.systemBars.asPaddingValues(),
-                            )
-                        } else {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text(stringResource(R.string.error_unknown))
-                            }
-                        }
-                    }
-                    return@KongamusicTheme
-                }
                 val navController = rememberNavController()
                 val homeListState = rememberLazyListState()
                 val searchListState = rememberLazyListState()
@@ -914,6 +925,13 @@ class MainActivity : ComponentActivity() {
                         is OnboardingScreenState.Error -> false
                         is OnboardingScreenState.Success -> state.uiState.shouldShowOnboarding
                     }
+
+                val (welcomeSeen, setWelcomeSeen) = rememberPreference(WelcomeSeenKey, defaultValue = false)
+
+                if (shouldShowOnboarding && !welcomeSeen) {
+                    WelcomeScreen(onContinue = { setWelcomeSeen(true) })
+                    return@KongamusicTheme
+                }
 
                 if (shouldShowOnboarding) {
                     if (showOnboardingLogin) {
@@ -1204,6 +1222,42 @@ class MainActivity : ComponentActivity() {
                                 !active
                         }
 
+                    // SpatialFlow-style scroll-driven navbar behaviour: scrolling
+                    // down the page hides the bar completely and the mini player
+                    // smoothly takes over the freed space; scrolling back up
+                    // smoothly restores it. Reset whenever the destination
+                    // changes so a freshly opened tab always starts with the
+                    // bar visible.
+                    var isNavBarHiddenByScroll by remember { mutableStateOf(false) }
+                    LaunchedEffect(navBackStackEntry?.destination?.route) {
+                        isNavBarHiddenByScroll = false
+                    }
+                    val navBarScrollDensity = LocalDensity.current
+                    val navBarHideScrollThresholdPx = with(navBarScrollDensity) { 14.dp.toPx() }
+                    val navBarScrollHideConnection =
+                        remember(navBarHideScrollThresholdPx) {
+                            object : NestedScrollConnection {
+                                override fun onPostScroll(
+                                    consumed: Offset,
+                                    available: Offset,
+                                    source: NestedScrollSource,
+                                ): Offset {
+                                    // Only real user gestures (drag or fling) drive the
+                                    // hide/show; programmatic scrolls (scroll-position
+                                    // restore on playlists, settings auto-scroll) must
+                                    // not touch the bar.
+                                    if (source == NestedScrollSource.UserInput) {
+                                        if (consumed.y < -navBarHideScrollThresholdPx) {
+                                            isNavBarHiddenByScroll = true
+                                        } else if (consumed.y > navBarHideScrollThresholdPx) {
+                                            isNavBarHiddenByScroll = false
+                                        }
+                                    }
+                                    return Offset.Zero
+                                }
+                            }
+                        }
+
                     fun getBottomNavPadding(): Dp =
                         if (shouldShowNavigationBar && !useRail) {
                             NavigationBarHeight
@@ -1263,7 +1317,14 @@ class MainActivity : ComponentActivity() {
 
                     var glassPrewarmActive by remember { mutableStateOf(false) }
                     LaunchedEffect(Unit) {
-                        delay(2000)
+                        // Deferred past the cold-open window: the prewarm
+                        // compiles the AGSL vibrancy shader + blur RenderEffect
+                        // by drawing a backdrop for 450ms, which used to fire
+                        // two seconds in — exactly while the first home feed
+                        // was still rendering, janking the app's very first
+                        // interactions. 4.5s still warms the pipeline long
+                        // before a menu is ever opened.
+                        delay(4500)
                         glassPrewarmActive = true
                         delay(450)
                         glassPrewarmActive = false
@@ -1276,7 +1337,8 @@ class MainActivity : ComponentActivity() {
                     }
 
                     val bottomNavigationBarHeight by animateDpAsState(
-                        targetValue = if (shouldShowNavigationBar && !useRail) navVisibleHeight else 0.dp,
+                        targetValue =
+                            if (shouldShowNavigationBar && !useRail && !isNavBarHiddenByScroll) navVisibleHeight else 0.dp,
                         animationSpec = if (disableAnimations) snap() else NavigationBarAnimationSpec,
                         label = "",
                     )
@@ -1337,8 +1399,9 @@ class MainActivity : ComponentActivity() {
 
                     val aodAutoTimerSeconds by rememberPreference(AodAutoTimerSecondsKey, defaultValue = 0)
                     val aodAutoOnScreenDim by rememberPreference(AodAutoOnScreenDimKey, defaultValue = false)
-                    val isPlayingNow by (playerConnection?.isPlaying ?: MutableStateFlow(false))
-                        .collectAsStateWithLifecycle()
+                    val isPlayingNow by remember(playerConnection) {
+                        playerConnection?.isPlaying ?: MutableStateFlow(false)
+                    }.collectAsStateWithLifecycle()
                     LaunchedEffect(
                         aodAutoTimerSeconds,
                         isPlayingNow,
@@ -1948,8 +2011,11 @@ class MainActivity : ComponentActivity() {
                                     )
                                 } else {
                                     val isPreS = Build.VERSION.SDK_INT < Build.VERSION_CODES.S
+                                    // Only the neutral frosted rail blurs — the tinted
+                                    // rail is a flat solid colour (tint wins if both
+                                    // flags are somehow stored on).
                                     val canRailBlur =
-                                        (navigationBarFrostedBlur || navigationBarTintFrostedBlur) &&
+                                        navigationBarFrostedBlur && !navigationBarTintFrostedBlur &&
                                             navBarFrostedBackdrop != null && !isPreS
                                     val canRailLiquidGlass =
                                         liquidGlassEnabled && liquidGlassNavBarEnabled &&
@@ -1957,10 +2023,26 @@ class MainActivity : ComponentActivity() {
                                     var railPositionInRoot by remember {
                                         mutableStateOf(Offset.Zero)
                                     }
+                                    val railDarkScheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+                                    // Scheme-adaptive tinted rail — matches the tinted bar: light
+                                    // accent pastel in light mode, deep accent-tinted dark bar in
+                                    // dark mode, with the content polarity flipping with the scheme.
+                                    val railTintedBaseColor =
+                                        if (railDarkScheme) {
+                                            lerp(Color.Black, MaterialTheme.colorScheme.primary, 0.30f)
+                                        } else {
+                                            lerp(Color.White, MaterialTheme.colorScheme.primary, 0.26f)
+                                        }
+                                    val railTintedContentColor =
+                                        if (railDarkScheme) {
+                                            lerp(Color.White, MaterialTheme.colorScheme.primary, 0.45f)
+                                        } else {
+                                            lerp(MaterialTheme.colorScheme.primary, Color.Black, 0.55f)
+                                        }
                                     val railContainerColor =
                                         when {
                                             canRailLiquidGlass -> Color.Transparent
-                                            canRailBlur && navigationBarTintFrostedBlur -> Color.Black.copy(alpha = 0.55f)
+                                            navigationBarTintFrostedBlur -> railTintedBaseColor
                                             canRailBlur ->
                                                 if (pureBlack) Color.Black.copy(alpha = 0.45f)
                                                 else MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.85f)
@@ -1970,7 +2052,7 @@ class MainActivity : ComponentActivity() {
                                     val railContentColor =
                                         when {
                                             canRailLiquidGlass -> Color.White
-                                            navigationBarTintFrostedBlur && canRailBlur -> Color.White
+                                            navigationBarTintFrostedBlur -> railTintedContentColor
                                             pureBlack -> Color.White
                                             else -> MaterialTheme.colorScheme.onSurfaceVariant
                                         }
@@ -1983,8 +2065,6 @@ class MainActivity : ComponentActivity() {
                                                 },
                                     ) {
                                         if (canRailBlur && navBarFrostedBackdrop != null) {
-                                            val overlayAlpha =
-                                                if (navigationBarTintFrostedBlur) 0.45f else 0.30f
                                             Box(
                                                 modifier =
                                                     Modifier
@@ -1996,7 +2076,7 @@ class MainActivity : ComponentActivity() {
                                                                     radiusY = 60f,
                                                                     edgeTreatment = TileMode.Clamp,
                                                                 )
-                                                            alpha = overlayAlpha
+                                                            alpha = 0.30f
                                                             clip = true
                                                         }.drawBehind {
                                                             val offset =
@@ -2056,7 +2136,10 @@ class MainActivity : ComponentActivity() {
                                                         .drawBackdrop(
                                                             backdrop = liquidGlassBackdrop,
                                                             effects = {
-                                                                vibrancy()
+                                                                // Vividness boost; no lens here on purpose - the
+                                                                // rail's rectangle shape has no corner radii for
+                                                                // the refraction SDF.
+                                                                colorControls(saturation = 1.7f)
                                                                 blur(4f.dp.toPx())
                                                             },
                                                             onDrawBackdrop = { drawBackdrop -> drawBackdrop() },
@@ -2451,6 +2534,8 @@ class MainActivity : ComponentActivity() {
                                                                 SearchSource.ONLINE ->
                                                                     if (searchProvider == SearchProvider.SPOTIFY) {
                                                                         R.string.search_source_spotify
+                                                                    } else if (searchProvider == SearchProvider.AMAZON) {
+                                                                        R.string.source_amazon
                                                                     } else {
                                                                         R.string.search_yt_music
                                                                     }
@@ -2662,6 +2747,31 @@ class MainActivity : ComponentActivity() {
                                                 pureBlack = pureBlack,
                                                 isMiniPlayerPairedWithNavigation = areBottomBarsPaired,
                                                 onLyricsVisibilityChange = { isPlayerLyricsFullScreen = it },
+                                                navbarHiddenOffset = {
+                                                    // When the navigation bar slides away (route change or
+                                                    // scroll-to-hide), the collapsed mini player takes over the
+                                                    // freed space: it drifts down by exactly the bar's footprint
+                                                    // (bar height + its padding), keeping the system gesture
+                                                    // inset clear. Scaled by (1 - sheet progress) inside
+                                                    // BottomSheet so the expanded player is unaffected.
+                                                    // Only on routes whose collapsed bound still contains the
+                                                    // bar footprint — routes that hide the bar outright
+                                                    // (settings, playlists, active search) already exclude it
+                                                    // from the bound, so drifting again would shove the mini
+                                                    // player right off the screen.
+                                                    if (shouldShowNavigationBar && !useRail) {
+                                                        val hideFraction =
+                                                            1f - (
+                                                                bottomNavigationBarHeight.coerceAtMost(navVisibleHeight) /
+                                                                    navVisibleHeight
+                                                            )
+                                                        with(navBarScrollDensity) {
+                                                            (floatingBarsBottomPadding + navVisibleHeight).toPx() * hideFraction
+                                                        }
+                                                    } else {
+                                                        0f
+                                                    }
+                                                },
                                             )
                                         }
 
@@ -2871,6 +2981,8 @@ class MainActivity : ComponentActivity() {
                                                 },
                                             ).nestedScroll(
                                                 topAppBarScrollBehavior.nestedScrollConnection,
+                                            ).nestedScroll(
+                                                navBarScrollHideConnection,
                                             ),
                                 ) {
                                     navigationBuilder(

@@ -66,6 +66,7 @@ import moe.kongamusic.utils.PlaylistSuggestionQueryBuilder
 import moe.kongamusic.utils.SyncUtils
 import moe.kongamusic.utils.dataStore
 import moe.kongamusic.utils.reportException
+import moe.kongamusic.canvas.models.CanvasArtwork
 import java.text.Collator
 import java.util.Locale
 import javax.inject.Inject
@@ -86,6 +87,11 @@ class LocalPlaylistViewModel
             database
                 .playlist(playlistId)
                 .stateIn(viewModelScope, SharingStarted.Lazily, null)
+
+        // No page canvas on local playlists (user request 2026-09-16: "the
+        // canvas shouldn't play in local playlists"). The header stays the
+        // plain Apple-Music-style text hero — canvas keeps playing only on
+        // the online/top/Spotify playlist pages, where it was also requested.
 
         val sortType: StateFlow<PlaylistSongSortType> =
             playlist

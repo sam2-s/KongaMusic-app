@@ -13,13 +13,19 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import moe.kongamusic.constants.MyTopFilter
 import moe.kongamusic.db.MusicDatabase
+import kotlinx.coroutines.launch
+import moe.kongamusic.canvas.models.CanvasArtwork
 import javax.inject.Inject
 
 @HiltViewModel
@@ -40,4 +46,21 @@ class TopPlaylistViewModel
                 .flatMapLatest { period ->
                     database.mostPlayedSongs(period.toTimeMillis(), top.toInt())
                 }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+        private val _canvasArtwork = MutableStateFlow<CanvasArtwork?>(null)
+        val canvasArtwork: StateFlow<CanvasArtwork?> = _canvasArtwork.asStateFlow()
+
+        init {
+            viewModelScope.launch(Dispatchers.IO) {
+                val first = topSongs.first { it.isNotEmpty() }.firstOrNull() ?: return@launch
+                _canvasArtwork.value =
+                    fetchPlaylistCanvasArtwork(
+                        context = context,
+                        firstSongId = first.song.id,
+                        firstSongTitle = first.song.title,
+                        firstSongArtist = first.artists.firstOrNull()?.name,
+                        firstSongAlbumTitle = first.album?.title,
+                    )
+            }
+        }
     }

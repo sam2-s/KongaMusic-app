@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.map
 import moe.kongamusic.playback.EqCapabilities
 import moe.kongamusic.playback.EqProfile
 import moe.kongamusic.playback.EqSettings
+import moe.kongamusic.playback.EqReverbPreset
 import javax.inject.Inject
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -132,6 +133,16 @@ class UpdateEqualizerUseCase
         suspend fun setVirtualizerStrength(value: Int) = repository.setVirtualizerStrength(value)
 
         suspend fun setAutoHeadroomEnabled(enabled: Boolean) = repository.setAutoHeadroomEnabled(enabled)
+
+        suspend fun setReverbEnabled(enabled: Boolean) = repository.setReverbEnabled(enabled)
+
+        suspend fun setReverbPreset(preset: EqReverbPreset) = repository.setReverbPreset(preset)
+
+        suspend fun setBalance(balance: Float) = repository.setBalance(balance)
+
+        suspend fun set8DEnabled(enabled: Boolean) = repository.set8DEnabled(enabled)
+
+        suspend fun set8DSpeed(speedHz: Float) = repository.set8DSpeed(speedHz)
     }
 
 class ManageEqualizerProfilesUseCase

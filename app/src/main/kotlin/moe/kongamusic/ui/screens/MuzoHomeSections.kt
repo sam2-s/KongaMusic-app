@@ -36,8 +36,21 @@ private val MuzoGutter = 20.dp
 fun HomeAtmosphereBackground(
     modifier: Modifier = Modifier,
 ) {
-    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-    val base = if (dark) Color(0xFF0D0E12) else MaterialTheme.colorScheme.surface
+    val surface = MaterialTheme.colorScheme.surface
+    val dark = surface.luminance() < 0.5f
+    // AMOLED: a pitch-black surface means the user opted into the pure-black theme, so the
+    // atmospheric gradient is replaced by flat black to save power and stay truly black.
+    val amoled = dark && surface.luminance() < 0.02f
+    if (amoled) {
+        Box(
+            modifier =
+                modifier
+                    .fillMaxSize()
+                    .background(Color.Black),
+        )
+        return
+    }
+    val base = if (dark) Color(0xFF0D0E12) else surface
 
     val glow = if (dark) 0.17f else 0.12f
     Box(

@@ -370,11 +370,6 @@ class DownloadUtil
                             .setFragmentSize(DOWNLOAD_FRAGMENT_SIZE),
                     ),
             ) { dataSpec ->
-                runBlocking {
-                    kotlinx.coroutines.withTimeoutOrNull(STARTUP_READINESS_WAIT_MS) {
-                        moe.kongamusic.App.startupReadiness.awaitReady()
-                    }
-                }
                 val requestKey = dataSpec.key ?: error("No media id")
                 val mediaId = DownloadSourceConfig.downloadIdToSongId(requestKey)
 
@@ -643,7 +638,6 @@ class DownloadUtil
             }
 
         suspend fun prewarmSongForDownload(mediaId: String): String? {
-            moe.kongamusic.App.startupReadiness.awaitReady()
             if (PoolAccountManager.isEnabled) {
                 runCatching {
                     kotlinx.coroutines.withTimeout(POOL_REFRESH_TIMEOUT_MS) {
@@ -977,6 +971,11 @@ class DownloadUtil
 
                 resolveAppleDownloadStream(mediaId, title, artists, album, durationMs)
             }
+
+            // Amazon serves CENC-protected fragmented MP4 and this fork ships no decryption step
+            // (see AmazonEnabledKey in PreferenceKeys.kt), so no download stream can be produced
+            // here — the chain skips Amazon and falls through to the next source.
+            DownloadSource.AMAZON -> null
             DownloadSource.AUTO, DownloadSource.YOUTUBE_MUSIC -> null
         }
 
@@ -1365,7 +1364,6 @@ class DownloadUtil
 
             internal const val YT_DOWNLOAD_RESOLVE_TIMEOUT_MS = 120_000L
 
-            internal const val STARTUP_READINESS_WAIT_MS = 10_000L
 
             internal const val DOWNLOAD_AUTO_RETRY_DELAY_MS = 4_000L
 

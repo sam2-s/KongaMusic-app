@@ -75,6 +75,8 @@ import moe.kongamusic.ui.menu.YouTubeSongMenu
 import moe.kongamusic.ui.utils.SnapLayoutInfoProvider
 import moe.kongamusic.ui.utils.backToMain
 import moe.kongamusic.viewmodels.YouTubeBrowseViewModel
+import moe.kongamusic.innertube.models.EpisodeItem
+import moe.kongamusic.innertube.models.PodcastItem
 import androidx.compose.runtime.getValue
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -222,6 +224,7 @@ fun YouTubeBrowseScreen(
                                                             is AlbumItem -> navController.navigate("album/${item.id}")
                                                             is ArtistItem -> navController.navigate("artist/${item.id}")
                                                             is PlaylistItem -> navController.navigate("online_playlist/${item.id}")
+                                                            is PodcastItem -> navController.navigate("podcast/${android.net.Uri.encode(item.browseId)}")
                                                             else -> item
                                                         }
                                                     },
@@ -259,6 +262,8 @@ fun YouTubeBrowseScreen(
                                                                         onDismiss = menuState::dismiss,
                                                                     )
                                                                 }
+
+                                                                is PodcastItem, is EpisodeItem -> Unit
                                                             }
                                                         }
                                                     },

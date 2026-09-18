@@ -103,6 +103,9 @@ import moe.kongamusic.ui.utils.sendPauseRunningDownloads
 import moe.kongamusic.ui.utils.sendResumePausedDownloads
 import moe.kongamusic.utils.makeTimeString
 import moe.kongamusic.viewmodels.TopPlaylistViewModel
+import moe.kongamusic.constants.AlbumCanvasEnabledKey
+import moe.kongamusic.ui.player.LocalPlayerLyricsFullScreen
+import moe.kongamusic.utils.rememberPreference
 import dev.chrisbanes.haze.hazeSource
 import moe.kongamusic.ui.screens.ScreenHeaderHaze
 import moe.kongamusic.ui.screens.rememberScreenHeaderHaze
@@ -126,6 +129,9 @@ fun TopPlaylistScreen(
     val maxSize = viewModel.top
 
     val songs by viewModel.topSongs.collectAsStateWithLifecycle(initialValue = null)
+    val canvasArtwork by viewModel.canvasArtwork.collectAsStateWithLifecycle()
+    val pageCanvasEnabled by rememberPreference(key = AlbumCanvasEnabledKey, defaultValue = true)
+    val lyricsFullScreen = LocalPlayerLyricsFullScreen.current
     val likeLength =
         remember(songs) {
             songs?.fastSumBy { it.song.duration } ?: 0
@@ -348,6 +354,12 @@ fun TopPlaylistScreen(
                                 isAdded = false,
                                 addContentDescription = R.string.add_to_queue,
                                 removeContentDescription = R.string.remove_from_queue,
+                                canvasPrimaryUrl =
+                                    (canvasArtwork?.animated ?: canvasArtwork?.videoUrl)
+                                        ?.takeIf { pageCanvasEnabled },
+                                canvasFallbackUrl = canvasArtwork?.videoUrl?.takeIf { pageCanvasEnabled },
+                                canvasIsPlaying = true,
+                                canvasVisible = !lyricsFullScreen,
                                 onShuffle = {
                                     playerConnection.playQueue(
                                         ListQueue(

@@ -140,6 +140,7 @@ import moe.kongamusic.ui.utils.sendResumePausedDownloads
 import moe.kongamusic.utils.rememberPreference
 import moe.kongamusic.viewmodels.OnlinePlaylistViewModel
 import moe.kongamusic.ui.player.LocalPlayerLyricsFullScreen
+import moe.kongamusic.constants.AlbumCanvasEnabledKey
 import dev.chrisbanes.haze.hazeSource
 import moe.kongamusic.ui.screens.ScreenHeaderHaze
 import moe.kongamusic.ui.screens.rememberScreenHeaderHaze
@@ -164,6 +165,8 @@ fun OnlinePlaylistScreen(
     val playlist by viewModel.playlist.collectAsStateWithLifecycle()
     val songs by viewModel.playlistSongs.collectAsStateWithLifecycle()
     val viewCounts by viewModel.viewCounts.collectAsStateWithLifecycle()
+    val canvasArtwork by viewModel.canvasArtwork.collectAsStateWithLifecycle()
+    val pageCanvasEnabled by rememberPreference(key = AlbumCanvasEnabledKey, defaultValue = true)
     val dbPlaylist by viewModel.dbPlaylist.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val isLoadingMore by viewModel.isLoadingMore.collectAsStateWithLifecycle()
@@ -282,8 +285,17 @@ fun OnlinePlaylistScreen(
     }
 
     val wrappedSongs =
-        remember(filteredSongs) { filteredSongs.map { item -> ItemWrapper(item) } }
-            .toMutableStateList()
+        // The MutableStateList must be created INSIDE remember: calling
+        // toMutableStateList() on the remembered result rebuilt a fresh list
+        // instance on every recomposition of this screen (playback state,
+        // view counts and download maps all recompose it constantly while a
+        // song plays), which re-invalidated the LazyColumn's items block and
+        // churned allocations every frame — one of the causes of laggy
+        // playlist scrolling. Selection stays observable: ItemWrapper.isSelected
+        // is itself a mutableStateOf.
+        remember(filteredSongs) {
+            filteredSongs.map { item -> ItemWrapper(item) }.toMutableStateList()
+        }
 
     LaunchedEffect(songs) {
         val songIds = songs.map { it.id }
@@ -473,6 +485,12 @@ fun OnlinePlaylistScreen(
                                 isAdded = isBookmarked,
                                 addContentDescription = R.string.add_to_library,
                                 removeContentDescription = R.string.remove_from_library,
+                                canvasPrimaryUrl =
+                                    (canvasArtwork?.animated ?: canvasArtwork?.videoUrl)
+                                        ?.takeIf { pageCanvasEnabled },
+                                canvasFallbackUrl = canvasArtwork?.videoUrl?.takeIf { pageCanvasEnabled },
+                                canvasIsPlaying = true,
+                                canvasVisible = !lyricsFullScreen,
                                 onShuffle =
                                     playlist.shuffleEndpoint?.let { shuffleEndpoint ->
                                         {

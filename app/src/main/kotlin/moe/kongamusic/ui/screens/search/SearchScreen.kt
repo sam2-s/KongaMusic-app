@@ -110,12 +110,16 @@ import moe.kongamusic.ui.screens.HomeAtmosphereBackground
 import moe.kongamusic.ui.screens.LocalSearchHazeState
 import moe.kongamusic.ui.screens.rememberMoodAndGenresArtworkModel
 import moe.kongamusic.ui.screens.rememberMoodAndGenresArtworkUrl
+import moe.kongamusic.constants.DisableBlurKey
+import moe.kongamusic.constants.MinimalHomeModeKey
 import dev.chrisbanes.haze.hazeSource
 import moe.kongamusic.viewmodels.SearchDiscoveryScreenState
 import moe.kongamusic.viewmodels.SearchDiscoveryTab
 import moe.kongamusic.viewmodels.SearchDiscoveryViewModel
 import moe.kongamusic.viewmodels.SearchHistoryViewModel
 import moe.kongamusic.utils.rememberEnumPreference
+import moe.kongamusic.constants.DisableBlurKey
+import moe.kongamusic.utils.rememberPreference
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 
@@ -139,6 +143,14 @@ fun SearchScreen(
 ) {
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var searchProvider by rememberEnumPreference(DefaultSearchSourceKey, SearchProvider.YOUTUBE)
+    // The home tab's Minimal mode setting now also applies here (user
+    // request): with it on, the search tab shows only the search field and the
+    // user's own recent searches — trending searches, trending songs, new
+    // albums, moods/genres and the recommendation tabs are all hidden, the
+    // same philosophy as minimal home (personal history stays, discovery
+    // goes). Render-only gating, exactly like HomeScreen: the discovery
+    // view model still loads, it just has nothing to draw.
+    val (minimalMode, _) = rememberPreference(MinimalHomeModeKey, defaultValue = false)
     val onSearchSourceSelection: (SearchSource, SearchProvider) -> Unit = { _, provider ->
         searchProvider = provider
     }
@@ -162,6 +174,7 @@ fun SearchScreen(
     }
 
     val searchHazeState = LocalSearchHazeState.current
+    val (disableBlur) = rememberPreference(DisableBlurKey, false)
     Box(
         modifier =
             Modifier
@@ -175,7 +188,9 @@ fun SearchScreen(
                     },
                 ),
     ) {
-        HomeAtmosphereBackground()
+        if (!disableBlur) {
+            HomeAtmosphereBackground()
+        }
 
         LazyColumn(
             state = lazyListState,
@@ -209,6 +224,26 @@ fun SearchScreen(
                 )
             }
 
+            if (minimalMode) {
+                // Minimal search: keep the user's own recent-search history
+                // (the analogue of minimal home keeping "Recently played"),
+                // skip the discovery tabs and every trending/recommendation
+                // section below.
+                if (recentSearches.isNotEmpty()) {
+                    item(
+                        key = "search_recent_searches",
+                        contentType = "recent_searches",
+                    ) {
+                        RecentSearchesSection(
+                            recent = recentSearches,
+                            onClear = historyViewModel::clearAll,
+                            onDelete = historyViewModel::delete,
+                            onQueryClick = onSearchQuery,
+                            modifier = Modifier.animateItem(),
+                        )
+                    }
+                }
+            } else {
             item(
                 key = "search_tabs",
                 contentType = "search_tabs",
@@ -474,6 +509,7 @@ fun SearchScreen(
                     }
                 }
             }
+            } // end !minimalMode
 
             item(key = "search_bottom_spacer", contentType = "spacer") {
                 Spacer(Modifier.height(SearchSectionSpacing))
@@ -557,6 +593,8 @@ private fun SearchEntryField(
                                                 R.string.search_source_spotify
                                             } else if (searchProvider == SearchProvider.APPLE_MUSIC) {
                                                 R.string.search_source_apple_music
+                                            } else if (searchProvider == SearchProvider.AMAZON) {
+                                                R.string.source_amazon
                                             } else {
                                                 R.string.search_yt_music
                                             }

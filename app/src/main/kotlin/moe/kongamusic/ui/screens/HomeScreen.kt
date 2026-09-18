@@ -70,6 +70,7 @@ import moe.kongamusic.ui.component.LocalMenuState
 import moe.kongamusic.ui.component.MenuState
 import moe.kongamusic.utils.rememberPreference
 import moe.kongamusic.viewmodels.HomeViewModel
+import moe.kongamusic.constants.DisableBlurKey
 import dev.chrisbanes.haze.hazeSource
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -151,6 +152,7 @@ fun HomeScreen(
     }
 
     val homeHazeState = LocalHomeHazeState.current
+    val (disableBlur) = rememberPreference(DisableBlurKey, false)
     Box(
         modifier =
             Modifier
@@ -165,7 +167,9 @@ fun HomeScreen(
                 ),
     ) {
 
-        HomeAtmosphereBackground()
+        if (!disableBlur) {
+            HomeAtmosphereBackground()
+        }
         when (val state = screenState) {
             HomeScreenState.Loading -> {
 

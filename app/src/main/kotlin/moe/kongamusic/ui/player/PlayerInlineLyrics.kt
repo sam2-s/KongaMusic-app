@@ -9,10 +9,13 @@ package moe.kongamusic.ui.player
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import moe.kongamusic.lyrics.LyricsEntry
 import moe.kongamusic.lyrics.LyricsUtils
 import moe.kongamusic.playback.PlayerConnection
+import moe.kongamusic.ui.player.bitchord.CurrentLyricLine
+import moe.kongamusic.ui.player.bitchord.toBitChordLyrics
 import androidx.compose.runtime.getValue
 
 @Composable
@@ -28,4 +31,31 @@ fun rememberInlineLyricLines(playerConnection: PlayerConnection): List<LyricsEnt
             else -> emptyList()
         }
     }
+}
+
+@Composable
+fun InlineNowPlayingLyric(
+    playerConnection: PlayerConnection,
+    positionProvider: () -> Long,
+    isPlaying: Boolean,
+    durationMs: Long,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    visible: Boolean = true,
+    lyricsSyncOffsetMs: Long = 0L,
+) {
+    if (!visible) return
+    val entries = rememberInlineLyricLines(playerConnection)
+    if (entries.isEmpty()) return
+    val lines = remember(entries) { entries.toBitChordLyrics() }
+    CurrentLyricLine(
+        lines = lines,
+        trackKey = lines,
+        positionMs = (positionProvider() + lyricsSyncOffsetMs).coerceAtLeast(0L),
+        isPlaying = isPlaying,
+        durationMs = durationMs,
+        onClick = onClick,
+        modifier = modifier,
+        synced = true,
+    )
 }

@@ -83,6 +83,12 @@ import moe.kongamusic.lyrics.LyricsUtils
 import moe.kongamusic.ui.component.LyricsEnhanced
 import moe.kongamusic.viewmodels.LyricsMenuViewModel
 import moe.kongamusic.utils.rememberPreference
+import moe.kongamusic.constants.LyricsBackgroundStyle
+import moe.kongamusic.constants.LyricsBackgroundStyleKey
+import moe.kongamusic.constants.PlayerBackgroundStyle
+import moe.kongamusic.constants.PlayerBackgroundStyleKey
+import moe.kongamusic.ui.player.StyledLyricsBackground
+import moe.kongamusic.utils.rememberEnumPreference
 import androidx.hilt.navigation.compose.hiltViewModel
 import moe.kongamusic.extensions.togglePlayPause
 import moe.kongamusic.ui.utils.highRes
@@ -119,6 +125,7 @@ internal fun SimpMusicFullscreenLyricsSheet(
     bottomSheetPageState: BottomSheetPageState,
     color: Color,
     onDismiss: () -> Unit,
+    paletteColors: List<Color> = emptyList(),
 ) {
     val context = LocalContext.current
     val view = LocalView.current
@@ -222,6 +229,12 @@ internal fun SimpMusicFullscreenLyricsSheet(
     val midColor2 by animateColorAsState(color.copy(alpha = 0.85f), tween(1200, easing = FastOutSlowInEasing))
     val endColor by animateColorAsState(Color.Black, tween(1200, easing = FastOutSlowInEasing))
 
+    // Lyrics background style: SimpMusic's diagonal wash is the DEFAULT look;
+    // any other style takes over the sheet background while lyrics are up.
+    val lyricsBackgroundStylePref by rememberEnumPreference(LyricsBackgroundStyleKey, LyricsBackgroundStyle.DEFAULT)
+    val playerBackgroundStylePref by rememberEnumPreference(PlayerBackgroundStyleKey, PlayerBackgroundStyle.DEFAULT)
+    val resolvedLyricsBackground = lyricsBackgroundStylePref.resolveFor(playerBackgroundStylePref)
+
     var queueOpen by rememberSaveable { mutableStateOf(false) }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -280,33 +293,41 @@ internal fun SimpMusicFullscreenLyricsSheet(
                     },
             ) {
 
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.linearGradient(
-                                colors =
-                                    listOf(
-                                        startColor,
-                                        midColor1,
-                                        midColor2,
-                                        endColor.copy(alpha = 0.9f),
-                                        endColor,
-                                    ),
-                                start =
-                                    Offset(
-                                        x = 0f,
-                                        y = 0f,
-                                    ),
-                                end =
-                                    Offset(
-                                        x = 2500f,
-                                        y = 2500f,
-                                    ),
+            if (resolvedLyricsBackground != LyricsBackgroundStyle.DEFAULT) {
+                StyledLyricsBackground(
+                    style = resolvedLyricsBackground,
+                    mediaMetadata = mediaMetadata,
+                    gradientColors = paletteColors,
+                )
+            } else {
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.linearGradient(
+                                    colors =
+                                        listOf(
+                                            startColor,
+                                            midColor1,
+                                            midColor2,
+                                            endColor.copy(alpha = 0.9f),
+                                            endColor,
+                                        ),
+                                    start =
+                                        Offset(
+                                            x = 0f,
+                                            y = 0f,
+                                        ),
+                                    end =
+                                        Offset(
+                                            x = 2500f,
+                                            y = 2500f,
+                                        ),
+                                ),
                             ),
-                        ),
-            )
+                )
+            }
 
             Column(
                 modifier =
@@ -332,7 +353,8 @@ internal fun SimpMusicFullscreenLyricsSheet(
                         contentScale = ContentScale.Crop,
                         modifier =
                             Modifier
-                                .size(45.dp)
+                                // 56dp — the Apple Music lyrics header artwork size.
+                                .size(56.dp)
                                 .clip(RoundedCornerShape(8.dp)),
                     )
 

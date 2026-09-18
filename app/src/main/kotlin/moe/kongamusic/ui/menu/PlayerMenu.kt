@@ -35,7 +35,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -50,14 +49,11 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -75,10 +71,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.DialogProperties
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.media3.common.PlaybackParameters
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
@@ -140,6 +134,12 @@ import moe.kongamusic.utils.rememberPreference
 import moe.kongamusic.utils.serializeSpeedDialPins
 import moe.kongamusic.utils.shareLocalAudio
 import moe.kongamusic.utils.toggleSpeedDialPin
+import moe.kongamusic.canvas.SpotifyCanvasProvider
+import moe.kongamusic.canvas.models.CanvasArtwork
+import moe.kongamusic.constants.SpotifyCanvasKey
+import moe.kongamusic.constants.SpotifySpDcKey
+import moe.kongamusic.ui.player.fetchCanvasArtworkForPlayback
+import moe.kongamusic.ui.player.hasAnyCanvasSource
 import java.time.LocalDateTime
 import kotlin.math.abs
 import kotlin.math.log2
@@ -150,6 +150,11 @@ import moe.kongamusic.ui.component.KeepStatusBarHiddenInDialog
 import moe.kongamusic.ui.component.MenuSectionDivider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+
+private data class CanvasSourceOption(
+    val label: String,
+    val artwork: CanvasArtwork,
+)
 
 @Composable
 fun PlayerMenu(
@@ -197,7 +202,10 @@ fun PlayerMenu(
     val (artistSeparators) = rememberPreference(ArtistSeparatorsKey, defaultValue = ",;/&")
     val (externalDownloaderEnabled) = rememberPreference(ExternalDownloaderEnabledKey, defaultValue = false)
     val (externalDownloaderPackage) = rememberPreference(ExternalDownloaderPackageKey, defaultValue = "")
-    val (archiveTuneCanvasEnabled) = rememberPreference(ArchiveTuneCanvasKey, defaultValue = false)
+    val (archiveTuneCanvasEnabled) = rememberPreference(ArchiveTuneCanvasKey, defaultValue = true)
+    val (spotifyCanvasEnabled) = rememberPreference(SpotifyCanvasKey, defaultValue = false)
+    val (spotifySpDc) = rememberPreference(SpotifySpDcKey, defaultValue = "")
+    val spotifyCanvasAvailable = spotifyCanvasEnabled || spotifySpDc.isNotBlank()
     val playerDesignStyle by rememberEnumPreference(PlayerDesignStyleKey, defaultValue = PlayerDesignStyle.BITCHORD)
     val lowDataModeActive = rememberLowDataModeActive()
     val isCanvasArtworkRefetching by playerConnection.isCanvasArtworkRefetching.collectAsStateWithLifecycle()
@@ -466,16 +474,6 @@ fun PlayerMenu(
         }
     }
 
-    var showPitchTempoDialog by rememberSaveable {
-        mutableStateOf(false)
-    }
-
-    if (showPitchTempoDialog) {
-        TempoPitchDialog(
-            onDismiss = { showPitchTempoDialog = false },
-        )
-    }
-
     var showSleepTimerSheet by rememberSaveable { mutableStateOf(false) }
 
     var showEqualizerDialog by rememberSaveable {
@@ -502,20 +500,198 @@ fun PlayerMenu(
         )
     }
 
-    var showSaveCanvasDialog by rememberSaveable { mutableStateOf(false) }
+    // "Canvas" source picker: choose which provider's canvas plays for the
+    // current song. The menu item only shows up when at least one integrated
+    // provider can serve it - instant playback-cache check first, then a
+    // provider probe bounded by a 4s timeout so a slow network can never hold
+    // the menu hostage.
+    var showCanvasSourceDialog by rememberSaveable { mutableStateOf(false) }
+    var canvasSources by remember(mediaMetadata.id) { mutableStateOf<List<CanvasSourceOption>>(emptyList()) }
+    var canvasSourcesLoading by remember(mediaMetadata.id) { mutableStateOf(false) }
+    var canvasSaving by remember(mediaMetadata.id) { mutableStateOf(false) }
+    var canvasAvailable by remember(mediaMetadata.id) {
+        mutableStateOf(CanvasArtworkPlaybackCache.hasEntry(mediaMetadata.id))
+    }
+    LaunchedEffect(mediaMetadata.id, archiveTuneCanvasEnabled, spotifyCanvasAvailable, isCanvasArtworkRefetching) {
+        // Re-check the instant cache state first (covers post-refetch updates).
+        if (CanvasArtworkPlaybackCache.hasEntry(mediaMetadata.id)) {
+            canvasAvailable = true
+            return@LaunchedEffect
+        }
+        if (isLocalMedia || (!archiveTuneCanvasEnabled && !spotifyCanvasAvailable)) {
+            canvasAvailable = false
+            return@LaunchedEffect
+        }
+        val available =
+            kotlinx.coroutines.withTimeoutOrNull(4_000L) {
+                withContext(Dispatchers.IO) {
+                    hasAnyCanvasSource(
+                        mediaId = mediaMetadata.id,
+                        songTitleRaw = mediaMetadata.title,
+                        artistNameRaw = mediaMetadata.artists.firstOrNull()?.name.orEmpty(),
+                        storefront = java.util.Locale.getDefault().country.lowercase().ifBlank { "us" },
+                        albumTitle = mediaMetadata.album?.title,
+                        includeAppleMusic = archiveTuneCanvasEnabled,
+                        includeSpotify = spotifyCanvasAvailable,
+                    )
+                }
+            } ?: false
+        canvasAvailable = available
+    }
 
-    if (showSaveCanvasDialog) {
-        SaveCanvasDialog(
-            mediaId = mediaMetadata.id,
-            songTitle = mediaMetadata.title,
-            artistName = mediaMetadata.artists.joinToString(separator = ", ") { it.name },
-            albumTitle = mediaMetadata.album?.title,
-            storefront = remember {
-                val country = java.util.Locale.getDefault().country
-                if (country.length == 2) country.lowercase(java.util.Locale.ROOT) else "us"
-            },
-            onDismiss = { showSaveCanvasDialog = false },
-        )
+    fun loadCanvasSources() {
+        if (canvasSourcesLoading || canvasSaving) return
+        canvasSourcesLoading = true
+        coroutineScope.launch {
+            val sources = withContext(Dispatchers.IO) {
+                val byUrl = linkedMapOf<String, CanvasSourceOption>()
+                val title = mediaMetadata.title
+                val artist = mediaMetadata.artists.firstOrNull()?.name.orEmpty()
+                val storefront = java.util.Locale.getDefault().country.lowercase().ifBlank { "us" }
+                fetchCanvasArtworkForPlayback(
+                    songTitleRaw = title,
+                    artistNameRaw = artist,
+                    storefront = storefront,
+                    requireVertical = playerDesignStyle == PlayerDesignStyle.V7,
+                    forceRefresh = true,
+                    strictIdentity = !isLocalMedia,
+                    albumTitle = mediaMetadata.album?.title,
+                )?.let { artwork ->
+                    artwork.preferredAnimationUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                        byUrl[url] = CanvasSourceOption("ArchiveTune / Apple Music", artwork)
+                    }
+                }
+                if (spotifyCanvasAvailable && !isLocalMedia) {
+                    runCatching {
+                        SpotifyCanvasProvider.getByVideoId(
+                            videoId = mediaMetadata.id,
+                            songTitle = title,
+                            artistName = artist,
+                        )
+                    }
+                        .getOrNull()
+                        ?.let { artwork ->
+                            artwork.preferredAnimationUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                                byUrl.putIfAbsent(url, CanvasSourceOption("Spotify", artwork))
+                            }
+                        }
+                }
+                byUrl.values.toList()
+            }
+            canvasSources = sources
+            canvasSourcesLoading = false
+            if (sources.isEmpty()) {
+                Toast.makeText(context, context.getString(R.string.canvas_unavailable), Toast.LENGTH_SHORT).show()
+            } else {
+                showCanvasSourceDialog = true
+            }
+        }
+    }
+
+    fun saveCanvasSource(source: CanvasSourceOption) {
+        showCanvasSourceDialog = false
+        canvasSaving = true
+        coroutineScope.launch {
+            val saved = withContext(Dispatchers.IO) {
+                CanvasArtworkPlaybackCache.save(mediaMetadata.id, source.artwork)
+            }
+            if (saved) {
+                // Re-read the playable entry (local file URIs once the videos
+                // are on disk) and push it into the live render states so the
+                // playing canvas swaps right now, not on the next track change.
+                val playable =
+                    withContext(Dispatchers.IO) {
+                        CanvasArtworkPlaybackCache.getCachedOnlyFast(mediaMetadata.id)
+                    }
+                if (playable != null) {
+                    playerConnection.publishCanvasArtworkUpdate(mediaMetadata.id, playable)
+                }
+            }
+            canvasSaving = false
+            Toast.makeText(
+                context,
+                context.getString(if (saved) R.string.canvas_saved else R.string.canvas_save_failed),
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
+
+    // Row click: make the chosen source's canvas the one that plays for this
+    // song (streams immediately, caches in the background) without forcing a
+    // full synchronous download. `replace` (not `put`) swaps any existing
+    // entry for the song — `put` would silently keep the previous source's
+    // artwork and the picker would appear to do nothing — and the published
+    // update makes the player re-render the artwork slot on the next frame.
+    fun playCanvasSource(source: CanvasSourceOption) {
+        showCanvasSourceDialog = false
+        coroutineScope.launch {
+            val artwork =
+                withContext(Dispatchers.IO) {
+                    CanvasArtworkPlaybackCache.replace(mediaMetadata.id, source.artwork)
+                }
+            playerConnection.publishCanvasArtworkUpdate(mediaMetadata.id, artwork)
+            Toast.makeText(
+                context,
+                context.getString(R.string.canvas_source_selected, source.label),
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
+
+    if (showCanvasSourceDialog) {
+        ListDialog(onDismiss = { showCanvasSourceDialog = false }) {
+            item(key = "canvas_source_title") {
+                // Centered bold title (user request): the header is a plain
+                // centered label, not a ListItem row with a leading icon.
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = stringResource(R.string.canvas_source_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+            items(canvasSources, key = { it.label }) { source ->
+                val providerTag = source.artwork.provider ?: source.artwork.inferredProvider()
+                val sourceIcon =
+                    if (providerTag == CanvasArtwork.PROVIDER_SPOTIFY) {
+                        R.drawable.spotify_icon
+                    } else {
+                        R.drawable.apple_music_icon
+                    }
+                ListItem(
+                    headlineContent = { Text(text = source.label) },
+                    leadingContent = {
+                        Icon(
+                            painter = painterResource(sourceIcon),
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    },
+                    trailingContent = {
+                        if (canvasSaving) {
+                            CircularWavyProgressIndicator(modifier = Modifier.size(24.dp))
+                        } else {
+                            IconButton(onClick = { saveCanvasSource(source) }) {
+                                Icon(
+                                    painter = painterResource(R.drawable.download),
+                                    contentDescription = stringResource(R.string.save_canvas),
+                                )
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().clickable { playCanvasSource(source) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                )
+            }
+        }
     }
 
     val nowPlayingTitle =
@@ -627,7 +803,7 @@ fun PlayerMenu(
                     actions =
                         buildList {
                             castPlayerMenuAction?.let(::add)
-                            if (!isLocalMedia) {
+                            if (!isLocalMedia && !mediaMetadata.isPodcast) {
                                 add(
                                     NewAction(
                                         icon = {
@@ -791,27 +967,33 @@ fun PlayerMenu(
             MenuSectionDivider()
         }
 
+        // "Canvas": pick which provider's canvas plays for the current song -
+        // shown whenever any integrated provider can serve it (see the
+        // availability probe above).
         if (
             !isLocalMedia &&
             isQueueTrigger != true &&
-            archiveTuneCanvasEnabled &&
             !lowDataModeActive &&
             playerDesignStyle != PlayerDesignStyle.V5 &&
-            hasCanvasArtwork
+            canvasAvailable
         ) {
             item {
                 MenuSurfaceSection {
                     ListItem(
-                        headlineContent = { Text(text = stringResource(R.string.save_canvas)) },
+                        headlineContent = { Text(text = stringResource(R.string.canvas_menu_title)) },
                         leadingContent = {
-                            Icon(
-                                painter = painterResource(R.drawable.motion_photos_on),
-                                contentDescription = null,
-                            )
+                            if (canvasSourcesLoading || canvasSaving) {
+                                CircularWavyProgressIndicator(modifier = Modifier.size(24.dp))
+                            } else {
+                                Icon(
+                                    painter = painterResource(R.drawable.motion_photos_on),
+                                    contentDescription = null,
+                                )
+                            }
                         },
                         modifier =
                             Modifier.clickable {
-                                showSaveCanvasDialog = true
+                                loadCanvasSources()
                             },
                         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     )
@@ -1239,33 +1421,6 @@ fun PlayerMenu(
                             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                         )
 
-                        HorizontalDivider(
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant,
-                            thickness = 0.5.dp,
-                        )
-
-                        ListItem(
-                            headlineContent = { Text(text = stringResource(R.string.tempo_and_pitch)) },
-                            leadingContent = {
-                                Icon(
-                                    painter = painterResource(R.drawable.speed),
-                                    contentDescription = null,
-                                )
-                            },
-                            supportingContent = {
-                                val playbackParameters by playerConnection.playbackParameters.collectAsStateWithLifecycle()
-                                Text(
-                                    text = "x${formatMultiplier(
-                                        playbackParameters.speed,
-                                    )} • x${formatMultiplier(playbackParameters.pitch)}",
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            },
-                            modifier = Modifier.clickable { showPitchTempoDialog = true },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                        )
                     }
                 }
             }
@@ -1274,407 +1429,6 @@ fun PlayerMenu(
     }
 }
 
-@Composable
-fun TempoPitchDialog(onDismiss: () -> Unit) {
-    val playerConnection = LocalPlayerConnection.current ?: return
-    val initialSpeed = remember { playerConnection.player.playbackParameters.speed }
-    val initialPitch = remember { playerConnection.player.playbackParameters.pitch }
-
-    var tempo by remember {
-        mutableFloatStateOf(initialSpeed.safeCoerceIn(TempoMin, TempoMax, fallback = 1f))
-    }
-
-    var pitch by remember {
-        mutableFloatStateOf(initialPitch.safeCoerceIn(PitchMin, PitchMax, fallback = 1f))
-    }
-
-    var pitchMode by rememberSaveable {
-        mutableStateOf(
-            if (isPitchSemitoneAligned(pitch)) PitchMode.Semitones else PitchMode.Multiplier,
-        )
-    }
-
-    val applyPlaybackParameters: (Float, Float) -> Unit = { speed, pitchMultiplier ->
-        playerConnection.player.playbackParameters =
-            PlaybackParameters(
-                speed.coerceIn(TempoMin, TempoMax),
-                pitchMultiplier.coerceIn(PitchMin, PitchMax),
-            )
-    }
-
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        onDismissRequest = onDismiss,
-        title = {
-            Text(stringResource(R.string.tempo_and_pitch))
-        },
-        dismissButton = {
-            TextButton(
-                onClick = {
-                    tempo = 1f
-                    pitch = 1f
-                    applyPlaybackParameters(tempo, pitch)
-                },
-                shapes = ButtonDefaults.shapes(),
-            ) {
-                Text(stringResource(R.string.reset))
-            }
-        },
-        confirmButton = {
-            KeepStatusBarHiddenInDialog()
-            TextButton(
-                onClick = onDismiss,
-                shapes = ButtonDefaults.shapes(),
-            ) {
-                Text(stringResource(android.R.string.ok))
-            }
-        },
-        text = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(18.dp),
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 12.dp),
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.speed),
-                        contentDescription = null,
-                        modifier = Modifier.size(28.dp),
-                    )
-
-                    Text(
-                        text = stringResource(R.string.tempo),
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.weight(1f),
-                    )
-
-                    Text(
-                        text = "x${formatMultiplier(tempo)}",
-                        style = MaterialTheme.typography.titleMedium,
-                        textAlign = TextAlign.End,
-                    )
-                }
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    IconButton(
-                        enabled = tempo > TempoMin,
-                        onClick = {
-                            tempo = (tempo - 0.01f).coerceIn(TempoMin, TempoMax).quantize(0.01f)
-                            applyPlaybackParameters(tempo, pitch)
-                        },
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.remove),
-                            contentDescription = null,
-                        )
-                    }
-
-                    Slider(
-                        value = multiplierToSlider(tempo),
-                        onValueChange = { slider ->
-                            val updated = sliderToMultiplier(slider).quantize(0.01f)
-                            if (abs(updated - tempo) >= 0.005f) {
-                                tempo = updated
-                                applyPlaybackParameters(tempo, pitch)
-                            }
-                        },
-                        valueRange = 0f..1f,
-                        modifier = Modifier.weight(1f),
-                        colors = SliderDefaults.colors(),
-                    )
-
-                    IconButton(
-                        enabled = tempo < TempoMax,
-                        onClick = {
-                            tempo = (tempo + 0.01f).coerceIn(TempoMin, TempoMax).quantize(0.01f)
-                            applyPlaybackParameters(tempo, pitch)
-                        },
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.add),
-                            contentDescription = null,
-                        )
-                    }
-                }
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                ) {
-                    val presets = listOf(0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
-                    presets.forEach { preset ->
-                        val selected = abs(tempo - preset) < 0.005f
-                        FilterChip(
-                            selected = selected,
-                            onClick = {
-                                tempo = preset
-                                applyPlaybackParameters(tempo, pitch)
-                            },
-                            label = { Text("x${formatMultiplier(preset)}") },
-                        )
-                    }
-                }
-
-                HorizontalDivider(
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                    thickness = 0.5.dp,
-                )
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.discover_tune),
-                        contentDescription = null,
-                        modifier = Modifier.size(28.dp),
-                    )
-
-                    Text(
-                        text = stringResource(R.string.pitch),
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.weight(1f),
-                    )
-
-                    Text(
-                        text =
-                            when (pitchMode) {
-                                PitchMode.Semitones -> {
-                                    val semitones = pitchToSemitones(pitch)
-                                    "${if (semitones > 0) "+" else ""}$semitones"
-                                }
-
-                                PitchMode.Multiplier -> {
-                                    "x${formatMultiplier(pitch)}"
-                                }
-                            },
-                        style = MaterialTheme.typography.titleMedium,
-                        textAlign = TextAlign.End,
-                    )
-                }
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                ) {
-                    FilterChip(
-                        selected = pitchMode == PitchMode.Semitones,
-                        onClick = { pitchMode = PitchMode.Semitones },
-                        label = { Text(stringResource(R.string.pitch_mode_semitones_short)) },
-                    )
-                    FilterChip(
-                        selected = pitchMode == PitchMode.Multiplier,
-                        onClick = { pitchMode = PitchMode.Multiplier },
-                        label = { Text(stringResource(R.string.pitch_mode_multiplier_short)) },
-                    )
-                }
-
-                when (pitchMode) {
-                    PitchMode.Semitones -> {
-                        val currentSemitones = pitchToSemitones(pitch)
-                        Slider(
-                            value = currentSemitones.toFloat(),
-                            onValueChange = { slider ->
-                                val semitones = slider.roundToInt().coerceIn(-12, 12)
-                                val updated = semitonesToPitch(semitones)
-                                if (abs(updated - pitch) >= 0.0005f) {
-                                    pitch = updated
-                                    applyPlaybackParameters(tempo, pitch)
-                                }
-                            },
-                            valueRange = -12f..12f,
-                            steps = 23,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = SliderDefaults.colors(),
-                        )
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                        ) {
-                            val presets = listOf(-12, -7, -5, 0, 5, 7, 12)
-                            presets.forEach { preset ->
-                                val selected = currentSemitones == preset
-                                FilterChip(
-                                    selected = selected,
-                                    onClick = {
-                                        pitch = semitonesToPitch(preset)
-                                        applyPlaybackParameters(tempo, pitch)
-                                    },
-                                    label = { Text("${if (preset > 0) "+" else ""}$preset") },
-                                )
-                            }
-                        }
-                    }
-
-                    PitchMode.Multiplier -> {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            IconButton(
-                                enabled = pitch > PitchMin,
-                                onClick = {
-                                    pitch = (pitch - 0.01f).coerceIn(PitchMin, PitchMax).quantize(0.01f)
-                                    applyPlaybackParameters(tempo, pitch)
-                                },
-                            ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.remove),
-                                    contentDescription = null,
-                                )
-                            }
-
-                            Slider(
-                                value = multiplierToSlider(pitch),
-                                onValueChange = { slider ->
-                                    val updated = sliderToMultiplier(slider).quantize(0.01f)
-                                    if (abs(updated - pitch) >= 0.005f) {
-                                        pitch = updated
-                                        applyPlaybackParameters(tempo, pitch)
-                                    }
-                                },
-                                valueRange = 0f..1f,
-                                modifier = Modifier.weight(1f),
-                                colors = SliderDefaults.colors(),
-                            )
-
-                            IconButton(
-                                enabled = pitch < PitchMax,
-                                onClick = {
-                                    pitch = (pitch + 0.01f).coerceIn(PitchMin, PitchMax).quantize(0.01f)
-                                    applyPlaybackParameters(tempo, pitch)
-                                },
-                            ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.add),
-                                    contentDescription = null,
-                                )
-                            }
-                        }
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                        ) {
-                            val presets = listOf(0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
-                            presets.forEach { preset ->
-                                val selected = abs(pitch - preset) < 0.005f
-                                FilterChip(
-                                    selected = selected,
-                                    onClick = {
-                                        pitch = preset
-                                        applyPlaybackParameters(tempo, pitch)
-                                    },
-                                    label = { Text("x${formatMultiplier(preset)}") },
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        },
-    )
-}
-
-private enum class PitchMode {
-    Semitones,
-    Multiplier,
-}
-
-private const val TempoMin = 0.25f
-private const val TempoMax = 2f
-private const val PitchMin = 0.25f
-private const val PitchMax = 2f
-
-private fun Float.safeCoerceIn(
-    min: Float,
-    max: Float,
-    fallback: Float,
-): Float {
-    val safe = if (this.isFinite()) this else fallback
-    return safe.coerceIn(min, max)
-}
-
-private fun Float.quantize(step: Float): Float {
-    if (step <= 0f) return this
-    return (round(this / step) * step).coerceAtLeast(0f)
-}
-
-private fun pitchToSemitones(pitch: Float): Int {
-    val safePitch = pitch.safeCoerceIn(PitchMin, PitchMax, fallback = 1f).coerceAtLeast(0.0001f)
-    return (12f * log2(safePitch)).roundToInt().coerceIn(-12, 12)
-}
-
-private fun semitonesToPitch(semitones: Int): Float = 2f.pow(semitones.toFloat() / 12f).coerceIn(PitchMin, PitchMax)
-
-private fun isPitchSemitoneAligned(pitch: Float): Boolean {
-    val safePitch = pitch.safeCoerceIn(PitchMin, PitchMax, fallback = 1f).coerceAtLeast(0.0001f)
-    val semitones = (12f * log2(safePitch)).roundToInt()
-    val reconstructed = 2f.pow(semitones.toFloat() / 12f)
-    return abs(reconstructed - pitch) < 0.0015f
-}
-
-private fun formatMultiplier(multiplier: Float): String = String.format("%.2f", multiplier)
-
-private fun sliderToMultiplier(slider: Float): Float {
-    val t = slider.coerceIn(0f, 1f)
-    val y = (t - 0.5f) * 2f
-    val curve = 2.2f
-    val absY = abs(y).pow(curve)
-    val shaped =
-        when {
-            y > 0f -> absY
-            y < 0f -> -absY
-            else -> 0f
-        }
-    val exponent = if (y < 0f) 2f * shaped else shaped
-    return 2f.pow(exponent).coerceIn(TempoMin, TempoMax)
-}
-
-private fun multiplierToSlider(multiplier: Float): Float {
-    val m = multiplier.coerceIn(TempoMin, TempoMax)
-    val log = log2(m)
-    val curve = 2.2f
-    val shaped = if (m < 1f) (log / 2f) else log
-    val absShaped = abs(shaped).pow(1f / curve)
-    val y =
-        when {
-            shaped > 0f -> absShaped
-            shaped < 0f -> -absShaped
-            else -> 0f
-        }
-    return (0.5f + y / 2f).coerceIn(0f, 1f)
-}
 
 private fun AudioSourceType.sourceLabelRes(): Int =
     when (this) {
@@ -1683,6 +1437,7 @@ private fun AudioSourceType.sourceLabelRes(): Int =
         AudioSourceType.QOBUZ_BACKUP -> R.string.source_qobuz_backup
         AudioSourceType.DEEZER -> R.string.source_deezer
         AudioSourceType.APPLE -> R.string.source_apple_music
+        AudioSourceType.AMAZON -> R.string.source_amazon
         AudioSourceType.JIOSAAVN -> R.string.source_jiosaavn
         AudioSourceType.YOUTUBE -> R.string.source_youtube
     }
@@ -1694,6 +1449,9 @@ private fun AudioSourceType.sourceIconRes(): Int =
         AudioSourceType.QOBUZ_BACKUP -> R.drawable.provider_qobuz
         AudioSourceType.DEEZER -> R.drawable.provider_deezer
         AudioSourceType.APPLE -> R.drawable.provider_apple
+        // No dedicated Amazon Music mark ships in drawable/ yet; ic_music is the same stand-in
+        // PlaybackSourceSections uses for APPLE there.
+        AudioSourceType.AMAZON -> R.drawable.ic_music
         AudioSourceType.JIOSAAVN -> R.drawable.provider_jiosaavn
         AudioSourceType.YOUTUBE -> R.drawable.play
     }
@@ -1906,6 +1664,11 @@ private suspend fun searchOneSource(
                         )
                     }
             }
+
+            // Amazon serves CENC-protected streams this fork ships no decryption step for (see
+            // AmazonEnabledKey in PreferenceKeys.kt), so there is no provider to search here —
+            // this fork's source-search dialog simply never gets Amazon results.
+            AudioSourceType.AMAZON -> emptyList()
         }
     }
 

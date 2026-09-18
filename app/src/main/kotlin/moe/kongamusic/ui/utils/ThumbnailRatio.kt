@@ -10,6 +10,8 @@ package moe.kongamusic.ui.utils
 import moe.kongamusic.innertube.models.ArtistItem
 import moe.kongamusic.innertube.models.SongItem
 import moe.kongamusic.innertube.models.YTItem
+import moe.kongamusic.innertube.models.EpisodeItem
+import moe.kongamusic.innertube.models.PodcastItem
 
 private const val SQUARE_RATIO = 1f
 private const val LANDSCAPE_RATIO = 16f / 9f
@@ -31,7 +33,7 @@ val YTItem.preferredThumbnailRatio: Float
     get() = preferredThumbnailRatio(cropThumbnailToSquare = false)
 
 fun YTItem.preferredThumbnailRatio(cropThumbnailToSquare: Boolean): Float {
-    if (this is ArtistItem) return SQUARE_RATIO
+    if (this is ArtistItem || this is PodcastItem || this is EpisodeItem) return SQUARE_RATIO
 
     if (cropThumbnailToSquare && thumbnail?.contains("ytimg.com", ignoreCase = true) == true) {
         return SQUARE_RATIO
