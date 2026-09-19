@@ -188,11 +188,15 @@ fun FloatingNavigationToolbar(
     frostedBackdrop: NavigationBarBackdrop? = null,
     liquidGlass: Boolean = false,
     liquidGlassBackdrop: LayerBackdrop? = null,
+    nuvioGlass: Boolean = false,
     isSelected: (Screens) -> Boolean,
     onItemClick: (Screens, Boolean) -> Unit,
     onSearchItemDoubleClick: (() -> Unit)? = null,
 ) {
-    val isFloating = style == NavigationBarStyle.FLOATING
+    val isFloating =
+        style == NavigationBarStyle.FLOATING ||
+            style == NavigationBarStyle.LIQUID_GLASS ||
+            style == NavigationBarStyle.NUVIO_GLASS
 
     // Follows the APP theme (not the system setting) — derived from the active
     // color scheme so the tinted bar and its icon polarity stay correct even
@@ -241,14 +245,16 @@ fun FloatingNavigationToolbar(
     val canBlurBackdrop = frostedBlur && !tintFrostedBlur && frostedBackdrop != null && !isPreS
 
     val canLiquidGlass = liquidGlass && liquidGlassBackdrop != null && !isPreS
+    val canNuvioGlass = nuvioGlass
+    val canCapsuleBar = canLiquidGlass || canNuvioGlass
     val resolvedBarHeight =
-        if (canLiquidGlass) SukiSUBarHeight else NavigationBarHeight * navBarHeightMultiplier
+        if (canCapsuleBar) SukiSUBarHeight else NavigationBarHeight * navBarHeightMultiplier
 
     val itemVerticalPadding =
-        if (canLiquidGlass) SukiSUItemPadding else NavigationItemVerticalPadding
-    val itemHorizontalPadding = if (canLiquidGlass) SukiSUItemPadding else 0.dp
+        if (canCapsuleBar) SukiSUItemPadding else NavigationItemVerticalPadding
+    val itemHorizontalPadding = if (canCapsuleBar) SukiSUItemPadding else 0.dp
     val navigationShape =
-        if (canLiquidGlass) {
+        if (canCapsuleBar) {
             RoundedCornerShape(percent = 50)
         } else {
             remember(isPairedWithMiniPlayer, isFloating, navBarCornerRadius) {
@@ -267,7 +273,7 @@ fun FloatingNavigationToolbar(
             } ?: MaterialTheme.shapes.extraLarge
         }
     val navigationContainerColor =
-        if (canLiquidGlass) {
+        if (canCapsuleBar) {
 
             Color.Transparent
         } else if (canBlurBackdrop) {
@@ -567,8 +573,8 @@ fun FloatingNavigationToolbar(
                     ),
             shape = navigationShape,
             color = navigationContainerColor,
-            tonalElevation = if (canLiquidGlass) 0.dp else NavigationBarDefaults.Elevation,
-            shadowElevation = if (canLiquidGlass) 0.dp else if (isFloating) 8.dp else NavigationBarDefaults.Elevation,
+            tonalElevation = if (canCapsuleBar) 0.dp else NavigationBarDefaults.Elevation,
+            shadowElevation = if (canCapsuleBar) 0.dp else if (isFloating) 8.dp else NavigationBarDefaults.Elevation,
         ) {
             if (canBlurBackdrop && frostedBackdrop != null) {
                 if (isPreS) {
@@ -615,6 +621,9 @@ fun FloatingNavigationToolbar(
                                 },
                     )
                 }
+            }
+            if (canNuvioGlass) {
+                NuvioGlassSurface(modifier = Modifier.fillMaxSize())
             }
             val transparentRipple = remember { ripple(color = Color.Transparent) }
             androidx.compose.runtime.CompositionLocalProvider(

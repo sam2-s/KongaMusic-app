@@ -1265,7 +1265,10 @@ class MainActivity : ComponentActivity() {
                             0.dp
                         }
 
-                    val isFloatingNavBar = navigationBarStyle == NavigationBarStyle.FLOATING
+                    val isFloatingNavBar =
+                        navigationBarStyle == NavigationBarStyle.FLOATING ||
+                            navigationBarStyle == NavigationBarStyle.LIQUID_GLASS ||
+                            navigationBarStyle == NavigationBarStyle.NUVIO_GLASS
                     val floatingBarsBottomPadding =
                         if (isFloatingNavBar) FloatingNavigationBarBottomPadding else NavigationBarBottomPadding
                     val (navBarHeightMultiplier) = rememberPreference(
@@ -1294,6 +1297,18 @@ class MainActivity : ComponentActivity() {
                     val liquidGlassBackdrop: LayerBackdrop? =
                         if (liquidGlassActive) {
                             rememberLayerBackdrop()
+                        } else {
+                            null
+                        }
+
+                    val liquidGlassNavActive =
+                        navigationBarStyle == NavigationBarStyle.LIQUID_GLASS ||
+                            (liquidGlassEnabled &&
+                                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                                liquidGlassNavBarEnabled)
+                    val liquidGlassNavBackdrop: LayerBackdrop? =
+                        if (liquidGlassNavActive) {
+                            liquidGlassBackdrop ?: rememberLayerBackdrop()
                         } else {
                             null
                         }
@@ -2018,7 +2033,7 @@ class MainActivity : ComponentActivity() {
                                         navigationBarFrostedBlur && !navigationBarTintFrostedBlur &&
                                             navBarFrostedBackdrop != null && !isPreS
                                     val canRailLiquidGlass =
-                                        liquidGlassEnabled && liquidGlassNavBarEnabled &&
+                                        (liquidGlassEnabled && liquidGlassNavBarEnabled || navigationBarStyle == NavigationBarStyle.LIQUID_GLASS) &&
                                             liquidGlassBackdrop != null && !isPreS
                                     var railPositionInRoot by remember {
                                         mutableStateOf(Offset.Zero)
@@ -2815,8 +2830,9 @@ class MainActivity : ComponentActivity() {
                                                 frostedBlur = navigationBarFrostedBlur,
                                                 tintFrostedBlur = navigationBarTintFrostedBlur,
                                                 frostedBackdrop = navBarFrostedBackdrop,
-                                                liquidGlass = liquidGlassEnabled && liquidGlassNavBarEnabled,
-                                                liquidGlassBackdrop = liquidGlassBackdrop,
+                                                liquidGlass = liquidGlassNavActive,
+                                                liquidGlassBackdrop = liquidGlassNavBackdrop,
+                                                nuvioGlass = navigationBarStyle == NavigationBarStyle.NUVIO_GLASS,
                                                 modifier =
                                                     Modifier
                                                         .align(Alignment.BottomCenter)

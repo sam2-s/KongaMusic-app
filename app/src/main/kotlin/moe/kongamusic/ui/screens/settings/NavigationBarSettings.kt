@@ -115,6 +115,9 @@ fun NavigationBarSettings(navController: NavController, scrollTo: String? = null
         rememberPreference(LiquidGlassEnabledKey, defaultValue = false)
     val (liquidGlassNavBarEnabled, onLiquidGlassNavBarEnabledChange) =
         rememberPreference(LiquidGlassNavBarEnabledKey, defaultValue = false)
+    val isGlassNavStyle =
+        navigationBarStyle == NavigationBarStyle.LIQUID_GLASS ||
+            navigationBarStyle == NavigationBarStyle.NUVIO_GLASS
 
     val onFrostedBlurChange: (Boolean) -> Unit = { checked ->
         onNavigationBarFrostedBlurChange(checked)
@@ -229,6 +232,10 @@ fun NavigationBarSettings(navController: NavController, scrollTo: String? = null
                                         stringResource(R.string.navigation_bar_style_default)
                                     NavigationBarStyle.FLOATING ->
                                         stringResource(R.string.navigation_bar_style_floating)
+                                    NavigationBarStyle.LIQUID_GLASS ->
+                                        stringResource(R.string.navigation_bar_style_liquid_glass)
+                                    NavigationBarStyle.NUVIO_GLASS ->
+                                        stringResource(R.string.navigation_bar_style_nuvio_glass)
                                 }
                             },
                         )
@@ -282,7 +289,7 @@ fun NavigationBarSettings(navController: NavController, scrollTo: String? = null
                         icon = { Icon(painterResource(R.drawable.blur_on), null) },
                         checked = liquidGlassNavBarEnabled,
 
-                        isEnabled = liquidGlassEnabled && supported,
+                        isEnabled = liquidGlassEnabled && supported && !isGlassNavStyle,
                         onCheckedChange = onLiquidGlassNavBarEnabledChange,
                     )
                 }
@@ -324,7 +331,7 @@ fun NavigationBarSettings(navController: NavController, scrollTo: String? = null
                                 style = navigationBarStyle,
                             )
                         },
-                        enabled = !liquidGlassNavBarEnabled,
+                        enabled = !liquidGlassNavBarEnabled && !isGlassNavStyle,
                     )
                 }
 
@@ -349,7 +356,7 @@ fun NavigationBarSettings(navController: NavController, scrollTo: String? = null
                                 style = navigationBarStyle,
                             )
                         },
-                        enabled = !liquidGlassNavBarEnabled,
+                        enabled = !liquidGlassNavBarEnabled && !isGlassNavStyle,
                     )
                 }
 
@@ -374,7 +381,7 @@ fun NavigationBarSettings(navController: NavController, scrollTo: String? = null
                                 style = navigationBarStyle,
                             )
                         },
-                        enabled = !liquidGlassNavBarEnabled,
+                        enabled = !liquidGlassNavBarEnabled && !isGlassNavStyle,
                     )
                 }
 
@@ -399,7 +406,7 @@ fun NavigationBarSettings(navController: NavController, scrollTo: String? = null
                                 style = navigationBarStyle,
                             )
                         },
-                        enabled = !liquidGlassNavBarEnabled,
+                        enabled = !liquidGlassNavBarEnabled && !isGlassNavStyle,
                     )
                 }
 
@@ -424,7 +431,7 @@ fun NavigationBarSettings(navController: NavController, scrollTo: String? = null
                                 style = navigationBarStyle,
                             )
                         },
-                        enabled = !liquidGlassNavBarEnabled,
+                        enabled = !liquidGlassNavBarEnabled && !isGlassNavStyle,
                     )
                 }
 
@@ -449,7 +456,7 @@ fun NavigationBarSettings(navController: NavController, scrollTo: String? = null
                                 style = navigationBarStyle,
                             )
                         },
-                        enabled = !liquidGlassNavBarEnabled,
+                        enabled = !liquidGlassNavBarEnabled && !isGlassNavStyle,
                     )
                 }
 
@@ -471,7 +478,7 @@ fun NavigationBarSettings(navController: NavController, scrollTo: String? = null
                             onNavigationBarLabelSpacingChange(NAVIGATION_BAR_LABEL_SPACING_DEFAULT)
                             onNavigationBarCornerRadiusChange(NAVIGATION_BAR_CORNER_RADIUS_DEFAULT)
                         },
-                        enabled = !allDefaults && !liquidGlassNavBarEnabled,
+                        enabled = !allDefaults && !liquidGlassNavBarEnabled && !isGlassNavStyle,
                         shapes = ButtonDefaults.shapes(),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -616,10 +623,18 @@ private fun NavBarPreview(
     cornerRadius: Float,
     style: NavigationBarStyle,
 ) {
-    val isFloating = style == NavigationBarStyle.FLOATING
-    val resolvedBarHeight = NavigationBarHeight * heightMultiplier
+    val isFloating =
+        style == NavigationBarStyle.FLOATING ||
+            style == NavigationBarStyle.LIQUID_GLASS ||
+            style == NavigationBarStyle.NUVIO_GLASS
+    val isGlassStyle =
+        style == NavigationBarStyle.LIQUID_GLASS ||
+            style == NavigationBarStyle.NUVIO_GLASS
+    val resolvedBarHeight = if (isGlassStyle) 64.dp else NavigationBarHeight * heightMultiplier
     val shape =
-        if (isFloating) {
+        if (isGlassStyle) {
+            RoundedCornerShape(percent = 50)
+        } else if (isFloating) {
             RoundedCornerShape(cornerRadius.dp)
         } else {
             RoundedCornerShape(
@@ -632,7 +647,12 @@ private fun NavBarPreview(
 
     val baseColor = MaterialTheme.colorScheme.surfaceContainer
     val effectiveAlpha = opacity * (1f - transparency)
-    val barColor = baseColor.copy(alpha = effectiveAlpha.coerceIn(0.05f, 1f))
+    val barColor =
+        if (isGlassStyle) {
+            Color(0xFF1C1C1E).copy(alpha = 0.82f)
+        } else {
+            baseColor.copy(alpha = effectiveAlpha.coerceIn(0.05f, 1f))
+        }
     val indicatorColor =
         if (isFloating) {
             MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)
@@ -682,8 +702,14 @@ private fun NavBarPreview(
                 val items = Screens.MainScreens
                 items.forEachIndexed { index, screen ->
                     val selected = index == 0
-                    val selectedColor = MaterialTheme.colorScheme.primary
-                    val unselectedColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    val selectedColor =
+                        if (isGlassStyle) Color.White else MaterialTheme.colorScheme.primary
+                    val unselectedColor =
+                        if (isGlassStyle) {
+                            Color.White.copy(alpha = 0.62f)
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
