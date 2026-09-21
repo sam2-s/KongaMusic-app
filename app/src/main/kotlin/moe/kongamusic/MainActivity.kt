@@ -142,6 +142,7 @@ import moe.kongamusic.ui.screens.LocalSearchHazeState
 import moe.kongamusic.ui.screens.LocalLibraryHazeState
 import androidx.compose.ui.graphics.luminance
 import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
@@ -356,6 +357,7 @@ import moe.kongamusic.utils.PreferenceStore
 import moe.kongamusic.utils.SyncUtils
 import moe.kongamusic.utils.dataStore
 import moe.kongamusic.utils.get
+import moe.kongamusic.utils.isLowEndDevice
 import moe.kongamusic.utils.isLowRamDevice
 import moe.kongamusic.utils.isLocalMediaId
 import moe.kongamusic.utils.rememberEnumPreference
@@ -1312,6 +1314,12 @@ class MainActivity : ComponentActivity() {
                         } else {
                             null
                         }
+
+                    val nuvioJellyNavActive =
+                        navigationBarStyle == NavigationBarStyle.NUVIO_GLASS &&
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            !isTvDevice
+                    val navBarHazeState = remember { HazeState() }
 
                     val menuGlassBackdrop: ThrottledLayerBackdrop? =
                         if (liquidGlassActive) {
@@ -2833,6 +2841,11 @@ class MainActivity : ComponentActivity() {
                                                 liquidGlass = liquidGlassNavActive,
                                                 liquidGlassBackdrop = liquidGlassNavBackdrop,
                                                 nuvioGlass = navigationBarStyle == NavigationBarStyle.NUVIO_GLASS,
+                                                nuvioJellyBar = nuvioJellyNavActive,
+                                                nuvioHazeState = if (nuvioJellyNavActive) navBarHazeState else null,
+                                                labelVisibility = if (nuvioJellyNavActive && navVisibleHeight > 0.dp) {
+                                                    (bottomNavigationBarHeight / navVisibleHeight).coerceIn(0f, 1f)
+                                                } else 1f,
                                                 modifier =
                                                     Modifier
                                                         .align(Alignment.BottomCenter)
@@ -2992,6 +3005,12 @@ class MainActivity : ComponentActivity() {
                                             ).then(
                                                 if (liquidGlassBackdrop != null && !isPlayerLyricsFullScreen) {
                                                     Modifier.layerBackdrop(liquidGlassBackdrop)
+                                                } else {
+                                                    Modifier
+                                                },
+                                            ).then(
+                                                if (nuvioJellyNavActive) {
+                                                    Modifier.hazeSource(navBarHazeState)
                                                 } else {
                                                     Modifier
                                                 },

@@ -124,12 +124,15 @@ import moe.kongamusic.constants.NavigationBarStyle
 import moe.kongamusic.constants.NavigationBarTransparencyKey
 import moe.kongamusic.constants.NavigationBarWidthKey
 import moe.kongamusic.ui.screens.Screens
+import moe.kongamusic.ui.component.nuvio.JellyFloatingNavigationBar
+import moe.kongamusic.ui.component.nuvio.JellyFloatingNavigationItem
 import moe.kongamusic.utils.rememberPreference
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.lens
+import dev.chrisbanes.haze.HazeState
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.sign
@@ -189,6 +192,9 @@ fun FloatingNavigationToolbar(
     liquidGlass: Boolean = false,
     liquidGlassBackdrop: LayerBackdrop? = null,
     nuvioGlass: Boolean = false,
+    nuvioJellyBar: Boolean = false,
+    nuvioHazeState: HazeState? = null,
+    labelVisibility: Float = 1f,
     isSelected: (Screens) -> Boolean,
     onItemClick: (Screens, Boolean) -> Unit,
     onSearchItemDoubleClick: (() -> Unit)? = null,
@@ -302,6 +308,47 @@ fun FloatingNavigationToolbar(
     val (disableAnimations) = rememberPreference(DisableAnimationsKey, defaultValue = false)
     val (hideNavigationLabels) = rememberPreference(HideNavigationBarLabelsKey, defaultValue = false)
     val density = LocalDensity.current
+
+    // The full Nuvio jelly bar (glass pill + glow + drag gestures) takes over
+    // the whole bar slot when the style is active and the device can run it.
+    if (nuvioJellyBar) {
+        val searchDoubleClickTime = remember { mutableLongStateOf(0L) }
+        val jellyItems =
+            items.map { screen ->
+                val selected = isSelected(screen)
+                val onClick: () -> Unit =
+                    if (screen == Screens.Search && onSearchItemDoubleClick != null) {
+                        val onDoubleClick = onSearchItemDoubleClick
+                        {
+                            val currentTime = SystemClock.uptimeMillis()
+                            val isDoubleClick =
+                                currentTime - searchDoubleClickTime.longValue <=
+                                    ViewConfiguration.getDoubleTapTimeout()
+                            searchDoubleClickTime.longValue = if (isDoubleClick) 0L else currentTime
+                            if (isDoubleClick) onDoubleClick() else onItemClick(screen, selected)
+                        }
+                    } else {
+                        { onItemClick(screen, selected) }
+                    }
+                JellyFloatingNavigationItem(
+                    label = stringResource(screen.titleId),
+                    selected = selected,
+                    onClick = onClick,
+                    iconIdInactive = screen.iconIdInactive,
+                    iconIdActive = screen.iconIdActive,
+                )
+            }
+        JellyFloatingNavigationBar(
+            items = jellyItems,
+            modifier = modifier,
+            labelVisibility = labelVisibility,
+            hazeState = nuvioHazeState,
+            glowEnabled = true,
+            compactSize = false,
+            disableAnimations = disableAnimations,
+        )
+        return
+    }
 
     val indicatorColor =
         when {
@@ -623,7 +670,7 @@ fun FloatingNavigationToolbar(
                 }
             }
             if (canNuvioGlass) {
-                NuvioGlassSurface(modifier = Modifier.fillMaxSize())
+                NuvioGlassSurface(hazeState = null, modifier = Modifier.fillMaxSize())
             }
             val transparentRipple = remember { ripple(color = Color.Transparent) }
             androidx.compose.runtime.CompositionLocalProvider(

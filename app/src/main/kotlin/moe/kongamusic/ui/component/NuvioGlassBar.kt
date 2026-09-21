@@ -27,14 +27,20 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.offset
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeEffect
 import kotlin.math.roundToInt
 
 /**
  * Liquid Glass surface ported from NuvioMobile (NuvioMedia, GPL-3.0)
- * https://github.com/NuvioMedia/NuvioMobile — composeApp/src/androidMain/.../core/ui/glass/
+ * https://github.com/NuvioMedia/NuvioMobile — composeApp/src/androidMain/.../core/ui/glass/GlassBarSurface.kt
  *
  * AGSL runtime-shader refraction of the content behind the bar on Android 13+,
- * with a flat translucent capsule + edge highlight below that.
+ * with a flat translucent capsule + edge highlight below that. The backdrop
+ * sampler is fed by a Haze [HazeState] (the app wraps its screen content in a
+ * [dev.chrisbanes.haze.hazeSource] for the NUVIO_GLASS bar) so the refraction
+ * reflects real content scrolling underneath.
  */
 private val NuvioGlassSurfaceColor = Color(0xFF1C1C1E)
 
@@ -93,19 +99,25 @@ half4 main(float2 position) {
 
 @Composable
 internal fun NuvioGlassSurface(
+    hazeState: HazeState?,
     modifier: Modifier = Modifier,
     glowStrength: Float = 1f,
 ) {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && glowStrength > 0f) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        hazeState?.blurEnabled == true &&
+        glowStrength > 0f
+    ) {
         RefractedNuvioGlassSurface(
+            hazeState = hazeState,
             modifier = modifier,
             glowStrength = glowStrength,
         )
     } else {
         Box(
             modifier
+                .then(if (hazeState != null) Modifier.barBackdrop(hazeState) else Modifier)
                 .drawWithCache {
-                    val fill = NuvioGlassSurfaceColor.copy(alpha = 0.82f)
+                    val fill = NuvioGlassSurfaceColor.copy(alpha = if (hazeState != null) 0.55f else 0.82f)
                     val edge =
                         Brush.verticalGradient(
                             listOf(Color.White.copy(alpha = 0.27f), Color.White.copy(alpha = 0.02f)),
@@ -130,6 +142,7 @@ internal fun NuvioGlassSurface(
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @Composable
 private fun RefractedNuvioGlassSurface(
+    hazeState: HazeState,
     modifier: Modifier,
     glowStrength: Float,
 ) {
@@ -149,6 +162,14 @@ private fun RefractedNuvioGlassSurface(
                 shader.setFloatUniform("outset", NuvioGlassOutsetDp.dp.toPx())
                 shader.setFloatUniform("glowStrength", glowStrength)
                 renderEffect = RenderEffect.createRuntimeShaderEffect(shader, "backdrop").asComposeRenderEffect()
-            },
+            }
+            .barBackdrop(hazeState),
     )
+}
+
+private fun Modifier.barBackdrop(hazeState: HazeState): Modifier = hazeEffect(state = hazeState) {
+    blurRadius = 24.dp
+    backgroundColor = NuvioGlassSurfaceColor
+    tints = listOf(HazeTint(Color.Transparent))
+    noiseFactor = 0f
 }

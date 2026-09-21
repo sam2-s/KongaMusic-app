@@ -630,6 +630,7 @@ private fun NavBarPreview(
     val isGlassStyle =
         style == NavigationBarStyle.LIQUID_GLASS ||
             style == NavigationBarStyle.NUVIO_GLASS
+    val isNuvioStyle = style == NavigationBarStyle.NUVIO_GLASS
     val resolvedBarHeight = if (isGlassStyle) 64.dp else NavigationBarHeight * heightMultiplier
     val shape =
         if (isGlassStyle) {
@@ -724,6 +725,19 @@ private fun NavBarPreview(
                                     .background(if (selected) indicatorColor else Color.Transparent)
                                     .padding(horizontal = 18.dp, vertical = 7.dp),
                         ) {
+                            if (isNuvioStyle && selected) {
+                                Box(
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .background(
+                                            Brush.radialGradient(
+                                                0f to indicatorColor.copy(alpha = 0.35f),
+                                                0.5f to indicatorColor.copy(alpha = 0.10f),
+                                                1f to Color.Transparent,
+                                            ),
+                                        ),
+                                )
+                            }
                             Icon(
                                 painter =
                                     painterResource(
