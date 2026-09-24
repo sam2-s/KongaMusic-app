@@ -1270,7 +1270,8 @@ class MainActivity : ComponentActivity() {
                     val isFloatingNavBar =
                         navigationBarStyle == NavigationBarStyle.FLOATING ||
                             navigationBarStyle == NavigationBarStyle.LIQUID_GLASS ||
-                            navigationBarStyle == NavigationBarStyle.NUVIO_GLASS
+                            navigationBarStyle == NavigationBarStyle.NUVIO_GLASS ||
+                            navigationBarStyle == NavigationBarStyle.FLOATING_TAB_BAR
                     val floatingBarsBottomPadding =
                         if (isFloatingNavBar) FloatingNavigationBarBottomPadding else NavigationBarBottomPadding
                     val (navBarHeightMultiplier) = rememberPreference(
@@ -1345,9 +1346,9 @@ class MainActivity : ComponentActivity() {
                         // by drawing a backdrop for 450ms, which used to fire
                         // two seconds in — exactly while the first home feed
                         // was still rendering, janking the app's very first
-                        // interactions. 4.5s still warms the pipeline long
+                        // interactions. 3s still warms the pipeline long
                         // before a menu is ever opened.
-                        delay(4500)
+                        delay(3000)
                         glassPrewarmActive = true
                         delay(450)
                         glassPrewarmActive = false
@@ -1361,7 +1362,7 @@ class MainActivity : ComponentActivity() {
 
                     val bottomNavigationBarHeight by animateDpAsState(
                         targetValue =
-                            if (shouldShowNavigationBar && !useRail && !isNavBarHiddenByScroll) navVisibleHeight else 0.dp,
+                            if (shouldShowNavigationBar && !useRail) navVisibleHeight else 0.dp,
                         animationSpec = if (disableAnimations) snap() else NavigationBarAnimationSpec,
                         label = "",
                     )
@@ -2844,7 +2845,7 @@ class MainActivity : ComponentActivity() {
                                                 nuvioJellyBar = nuvioJellyNavActive,
                                                 nuvioHazeState = if (nuvioJellyNavActive) navBarHazeState else null,
                                                 labelVisibility = if (nuvioJellyNavActive && navVisibleHeight > 0.dp) {
-                                                    (bottomNavigationBarHeight / navVisibleHeight).coerceIn(0f, 1f)
+                                                    if (isNavBarHiddenByScroll) 0f else 1f
                                                 } else 1f,
                                                 modifier =
                                                     Modifier
