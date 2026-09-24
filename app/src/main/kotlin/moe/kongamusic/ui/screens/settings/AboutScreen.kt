@@ -28,9 +28,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -39,6 +39,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -47,8 +48,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -60,6 +63,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
+import coil3.compose.AsyncImage
 import dev.chrisbanes.haze.hazeSource
 import moe.kongamusic.LocalPlayerAwareWindowInsets
 import moe.kongamusic.LocalStableSystemBarsTopPadding
@@ -150,6 +154,15 @@ fun AboutScreen(
                 item(key = "identity", contentType = "about_identity") {
                     AboutContentContainer {
                         AboutIdentityCard(
+                            model = model,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+
+                item(key = "social_links", contentType = "about_social") {
+                    AboutContentContainer {
+                        AboutSocialLinksCard(
                             model = model,
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -265,24 +278,48 @@ private fun AboutIdentity(
             AboutMetadataBadge(text = model.buildVariant)
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+        // Author with GitHub avatar
         val uriHandler = LocalUriHandler.current
-        Text(
-            text = model.author,
-            style = MaterialTheme.typography.titleMediumEmphasized,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(AboutSpacing.sm),
             modifier =
                 Modifier
                     .clickable {
                         uriHandler.openUri(model.developerUrl)
                     }
-                    .semantics { role = Role.Button },
-        )
+                    .semantics { role = Role.Button }
+                    .padding(vertical = AboutSpacing.xs),
+        ) {
+            AsyncImage(
+                model = model.githubAvatarUrl,
+                contentDescription = "Samk GitHub avatar",
+                contentScale = ContentScale.Crop,
+                modifier =
+                    Modifier
+                        .size(40.dp)
+                        .clip(CircleShape),
+            )
+            Column {
+                Text(
+                    text = model.author,
+                    style = MaterialTheme.typography.titleMediumEmphasized,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = model.developerUrl.removePrefix("https://"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 
 @Composable
 private fun SurfaceAppIcon(modifier: Modifier = Modifier) {
-    androidx.compose.material3.Surface(
+    Surface(
         modifier = modifier,
         shape = CircleShape,
         color = MaterialTheme.colorScheme.primaryContainer,
@@ -318,6 +355,88 @@ private fun AboutMetadataBadge(
             maxLines = 1,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AboutSocialLinksCard(
+    model: AboutUiModel,
+    modifier: Modifier = Modifier,
+) {
+    val uriHandler = LocalUriHandler.current
+
+    Card(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.extraLarge,
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(AboutSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(AboutSpacing.sm),
+        ) {
+            Text(
+                text = "Links",
+                style = MaterialTheme.typography.titleMediumEmphasized,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+
+            AboutSocialLink(
+                icon = R.drawable.github,
+                title = "GitHub Repository",
+                subtitle = model.repoUrl.removePrefix("https://"),
+                onClick = { uriHandler.openUri(model.repoUrl) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun AboutSocialLink(
+    icon: Int,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .clickable(onClick = onClick)
+                .semantics { role = Role.Button },
+        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f),
+    ) {
+        Row(
+            modifier = Modifier.padding(AboutSpacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(AboutSpacing.sm),
+        ) {
+            Icon(
+                painter = painterResource(icon),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(24.dp),
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }
 
