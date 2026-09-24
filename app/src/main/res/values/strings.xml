@@ -580,6 +580,7 @@
     <string name="navigation_bar_style_floating">Floating</string>
     <string name="navigation_bar_style_liquid_glass">Liquid Glass</string>
     <string name="navigation_bar_style_nuvio_glass">Nuvio Glass</string>
+    <string name="navigation_bar_style_floating_tab_bar">Floating Tab Bar</string>
     <string name="navigation_bar_frosted_blur">Frosted navigation bar</string>
     <string name="navigation_bar_frosted_blur_desc">Apply a frosted blur behind the navigation bar</string>
     <string name="navigation_bar_frosted_blur_unsupported">Frosted navigation bar is not supported on Android versions below 12</string>

@@ -953,11 +953,19 @@ enum class MiniPlayerBackgroundStyle {
     LIQUID_GLASS,
 }
 
+enum class MiniPlayerStyle {
+    LEGACY,
+    ECHO_FLOATING,
+}
+
+val MiniPlayerStyleKey = stringPreferencesKey("miniPlayerStyle")
+
 enum class NavigationBarStyle {
     DEFAULT,
     FLOATING,
     LIQUID_GLASS,
     NUVIO_GLASS,
+    FLOATING_TAB_BAR,
 }
 
 val NavigationBarStyleKey = stringPreferencesKey("navigationBarStyle")

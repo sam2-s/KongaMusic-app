@@ -126,6 +126,7 @@ import moe.kongamusic.constants.NavigationBarWidthKey
 import moe.kongamusic.ui.screens.Screens
 import moe.kongamusic.ui.component.nuvio.JellyFloatingNavigationBar
 import moe.kongamusic.ui.component.nuvio.JellyFloatingNavigationItem
+import moe.kongamusic.ui.component.floatingtabbar.FloatingTabBarNavigation
 import moe.kongamusic.utils.rememberPreference
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.drawBackdrop
@@ -308,6 +309,21 @@ fun FloatingNavigationToolbar(
     val (disableAnimations) = rememberPreference(DisableAnimationsKey, defaultValue = false)
     val (hideNavigationLabels) = rememberPreference(HideNavigationBarLabelsKey, defaultValue = false)
     val density = LocalDensity.current
+
+    // iOS 26 style floating tab bar: pill with tabs + standalone search circle.
+    // Scroll-driven inline/expanded transition driven by isNavBarHiddenByScroll.
+    if (style == NavigationBarStyle.FLOATING_TAB_BAR) {
+        val isInline = labelVisibility < 0.5f
+        FloatingTabBarNavigation(
+            items = items,
+            currentRoute = items.firstOrNull { isSelected(it) }?.route,
+            onItemClick = onItemClick,
+            isInline = isInline,
+            pureBlack = pureBlack,
+            modifier = modifier,
+        )
+        return
+    }
 
     // The full Nuvio jelly bar (glass pill + glow + drag gestures) takes over
     // the whole bar slot when the style is active and the device can run it.

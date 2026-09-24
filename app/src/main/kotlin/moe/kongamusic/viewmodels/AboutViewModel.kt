@@ -25,6 +25,8 @@ data class AboutUiModel(
     val buildVariant: String,
     val author: String = "Samk",
     val developerUrl: String = "https://github.com/sam2-s",
+    val githubAvatarUrl: String = "https://avatars.githubusercontent.com/sam2-s",
+    val repoUrl: String = "https://github.com/sam2-s/KongaMusic-app",
 )
 
 @HiltViewModel
@@ -35,7 +37,7 @@ class AboutViewModel
             MutableStateFlow(
                 AboutUiModel(
                     appNameResId = R.string.app_name,
-                    versionName = "v1",
+                    versionName = BuildConfig.VERSION_NAME,
                     buildVariant = if (BuildConfig.DEBUG) "DEBUG" else BuildConfig.ARCHITECTURE.uppercase(),
                 ),
             ).asStateFlow()

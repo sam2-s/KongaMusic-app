@@ -117,7 +117,8 @@ fun NavigationBarSettings(navController: NavController, scrollTo: String? = null
         rememberPreference(LiquidGlassNavBarEnabledKey, defaultValue = false)
     val isGlassNavStyle =
         navigationBarStyle == NavigationBarStyle.LIQUID_GLASS ||
-            navigationBarStyle == NavigationBarStyle.NUVIO_GLASS
+            navigationBarStyle == NavigationBarStyle.NUVIO_GLASS ||
+            navigationBarStyle == NavigationBarStyle.FLOATING_TAB_BAR
 
     val onFrostedBlurChange: (Boolean) -> Unit = { checked ->
         onNavigationBarFrostedBlurChange(checked)
@@ -236,6 +237,8 @@ fun NavigationBarSettings(navController: NavController, scrollTo: String? = null
                                         stringResource(R.string.navigation_bar_style_liquid_glass)
                                     NavigationBarStyle.NUVIO_GLASS ->
                                         stringResource(R.string.navigation_bar_style_nuvio_glass)
+                                    NavigationBarStyle.FLOATING_TAB_BAR ->
+                                        stringResource(R.string.navigation_bar_style_floating_tab_bar)
                                 }
                             },
                         )
@@ -626,7 +629,8 @@ private fun NavBarPreview(
     val isFloating =
         style == NavigationBarStyle.FLOATING ||
             style == NavigationBarStyle.LIQUID_GLASS ||
-            style == NavigationBarStyle.NUVIO_GLASS
+            style == NavigationBarStyle.NUVIO_GLASS ||
+            style == NavigationBarStyle.FLOATING_TAB_BAR
     val isGlassStyle =
         style == NavigationBarStyle.LIQUID_GLASS ||
             style == NavigationBarStyle.NUVIO_GLASS
