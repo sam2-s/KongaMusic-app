@@ -575,12 +575,71 @@ object EchoStreamResolver {
     ): PlayerResponse.StreamingData.Format? {
         Timber.tag(logTag).d("Finding format with audioQuality: $audioQuality, network metered: ${connectivityManager.isActiveNetworkMetered}")
 
-        val format =
+        val audioFormats =
             playerResponse.streamingData?.adaptiveFormats
                 ?.filter { it.isAudio && it.isOriginal }
-                ?.maxByOrNull {
-                    it.bitrate * 1 + (if (it.mimeType.startsWith("audio/webm")) 10240 else 0)
+                .orEmpty()
+        if (audioFormats.isEmpty()) return null
+
+        val effectiveQuality =
+            when (audioQuality) {
+                AudioQuality.AUTO -> if (connectivityManager.isActiveNetworkMetered) AudioQuality.HIGH else AudioQuality.HIGHEST
+                else -> audioQuality
+            }
+
+        val targetBitrateBps =
+            when (effectiveQuality) {
+                AudioQuality.LOW -> 70_000
+                AudioQuality.HIGH -> 160_000
+                AudioQuality.HIGHEST -> 320_000
+                AudioQuality.AUTO -> null
+            }
+
+        // Codec rank that prefers lossless (FLAC/ALAC) first, then Opus, then AAC/MP4.
+        // YouTube does not normally expose FLAC/ALAC, but if a lossless codec ever shows up
+        // (e.g. via some clients/experiments), it gets the highest priority so we never
+        // accidentally pick a lossy stream when lossless is available.
+        fun codecRank(mimeType: String): Int {
+            val lower = mimeType.lowercase()
+            return when {
+                lower.contains("flac") -> 100
+                lower.contains("alac") -> 99
+                lower.contains("opus") || lower.contains("audio/webm") -> 3
+                lower.contains("mp4a") || lower.contains("audio/mp4") -> 2
+                else -> 1
+            }
+        }
+
+        val preferHigher =
+            compareByDescending<PlayerResponse.StreamingData.Format> { it.url != null }
+                .thenByDescending { codecRank(it.mimeType) }
+                .thenByDescending { it.bitrate }
+                .thenByDescending { it.audioSampleRate ?: 0 }
+
+        val preferLowerAboveTarget =
+            compareByDescending<PlayerResponse.StreamingData.Format> { it.url != null }
+                .thenByDescending { codecRank(it.mimeType) }
+                .thenBy { it.bitrate }
+                .thenByDescending { it.audioSampleRate ?: 0 }
+
+        val format =
+            when {
+                targetBitrateBps == null || effectiveQuality == AudioQuality.HIGHEST -> {
+                    audioFormats.sortedWith(preferHigher).firstOrNull()
                 }
+
+                else -> {
+                    val preferred =
+                        audioFormats
+                            .filter { it.bitrate <= targetBitrateBps }
+                            .sortedWith(preferHigher)
+                    val fallback =
+                        audioFormats
+                            .filter { it.bitrate > targetBitrateBps }
+                            .sortedWith(preferLowerAboveTarget)
+                    (preferred + fallback).firstOrNull()
+                }
+            }
 
         if (format != null) {
             Timber.tag(logTag).d("Selected format: ${format.mimeType}, bitrate: ${format.bitrate}")

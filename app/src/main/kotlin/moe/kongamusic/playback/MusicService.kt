@@ -490,7 +490,7 @@ class MusicService :
     private val audioQuality by enumPreference(
         this,
         AudioQualityKey,
-        moe.kongamusic.constants.AudioQuality.AUTO,
+        moe.kongamusic.constants.AudioQuality.HIGHEST,
     )
     private val preferredStreamClient by enumPreference(
         this,
@@ -7902,8 +7902,6 @@ class MusicService :
         if (playbackUrlCache[mediaId] != null) return
         if (hasFreshDirectStream(mediaId)) return
 
-        if (isLowDataModeActive()) return
-
         prefetchingMediaId = mediaId
         nextMediaItemPrefetchJob =
             scope.launch(Dispatchers.IO + SilentHandler) {
@@ -7911,7 +7909,7 @@ class MusicService :
                     Timber.tag(TAG).d("Prefetching stream URL for next media item: %s", mediaId)
 
                     val lowData = isLowDataModeActive()
-                    if (!lowData) {
+                    run {
                         val dataSpec = DataSpec.Builder()
                             .setUri("placeholder:$mediaId".toUri())
                             .setKey(mediaId)
@@ -7929,7 +7927,7 @@ class MusicService :
                             retryWithoutPlaybackLoginContext {
                                 YTPlayerUtils.playerResponseForPlayback(
                                     mediaId,
-                                    audioQuality = if (lowData) AudioQuality.LOW else audioQuality,
+                                    audioQuality = audioQuality,
                                     connectivityManager = connectivityManager,
                                     preferredStreamClient = preferredStreamClient,
                                     networkMetered = lowData,
@@ -9042,13 +9040,13 @@ class MusicService :
     }
 
     private fun parseTidalAudioQuality(): TidalAudioQuality {
-        val stored = dataStore.get(TidalAudioQualityKey, TidalAudioQuality.FLAC.name)
-        return runCatching { TidalAudioQuality.valueOf(stored) }.getOrDefault(TidalAudioQuality.FLAC)
+        val stored = dataStore.get(TidalAudioQualityKey, TidalAudioQuality.HI_RES_LOSSLESS.name)
+        return runCatching { TidalAudioQuality.valueOf(stored) }.getOrDefault(TidalAudioQuality.HI_RES_LOSSLESS)
     }
 
     private fun parseAppleMusicQuality(): AppleMusicQuality {
-        val stored = dataStore.get(AppleMusicQualityKey, AppleMusicQuality.LOSSLESS.name)
-        return runCatching { AppleMusicQuality.valueOf(stored) }.getOrDefault(AppleMusicQuality.LOSSLESS)
+        val stored = dataStore.get(AppleMusicQualityKey, AppleMusicQuality.HI_RES_LOSSLESS.name)
+        return runCatching { AppleMusicQuality.valueOf(stored) }.getOrDefault(AppleMusicQuality.HI_RES_LOSSLESS)
     }
 
     private fun parseTidalInstances(): List<String> =
@@ -9417,7 +9415,7 @@ class MusicService :
                     directStreamCache.remove(cacheKey, cached)
                     continue
                 }
-                if (!lowDataModeActive) {
+                run {
                     Timber.tag("MusicService").d(
                         "Multi-source cache HIT for %s: %s [%s]",
                         mediaId,
@@ -9476,9 +9474,7 @@ class MusicService :
         }
 
         if (lowDataModeActive && !isDirectPick) {
-            tidalActiveMediaIds.remove(mediaId)
-            Timber.tag("MusicService").i("Low-data mode active; skipping Tidal/Qobuz for %s", mediaId)
-            return null
+            Timber.tag("MusicService").i("Low-data mode active; lossless sources still preferred for %s", mediaId)
         }
 
         val query = buildSourceQuery(mediaId)
@@ -10042,8 +10038,8 @@ class MusicService :
             .filter { it.isNotEmpty() }
 
     private fun parseQobuzAudioQuality(): QobuzAudioQuality {
-        val stored = dataStore.get(QobuzAudioQualityKey, QobuzAudioQuality.FLAC.name)
-        return runCatching { QobuzAudioQuality.valueOf(stored) }.getOrDefault(QobuzAudioQuality.FLAC)
+        val stored = dataStore.get(QobuzAudioQualityKey, QobuzAudioQuality.MAX.name)
+        return runCatching { QobuzAudioQuality.valueOf(stored) }.getOrDefault(QobuzAudioQuality.MAX)
     }
 
     private fun resolveDeezerStream(query: SourceQuery): DirectStream? {
@@ -10443,7 +10439,7 @@ class MusicService :
                 retryWithoutPlaybackLoginContext {
                     YTPlayerUtils.playerResponseForPlayback(
                         mediaId,
-                        audioQuality = if (lowDataModeActive) AudioQuality.LOW else audioQuality,
+                        audioQuality = audioQuality,
                         connectivityManager = connectivityManager,
                         preferredStreamClient = preferredStreamClient,
                         networkMetered = lowDataModeActive,

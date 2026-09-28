@@ -313,7 +313,7 @@ object AppleMusicAudioProvider {
         artists: List<String>,
         album: String?,
         durationMs: Long?,
-        quality: AppleMusicQuality = AppleMusicQuality.LOSSLESS,
+        quality: AppleMusicQuality = AppleMusicQuality.HI_RES_LOSSLESS,
     ): List<AppleMusicStream> =
         withContext(Dispatchers.IO) {
             val devToken = devToken() ?: return@withContext emptyList()

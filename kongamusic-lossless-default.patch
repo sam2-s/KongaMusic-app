@@ -1,0 +1,319 @@
+diff --git a/app/src/main/kotlin/moe/kongamusic/applemusic/AppleMusicAudioProvider.kt b/app/src/main/kotlin/moe/kongamusic/applemusic/AppleMusicAudioProvider.kt
+index 813d693..9e76dcc 100644
+--- a/app/src/main/kotlin/moe/kongamusic/applemusic/AppleMusicAudioProvider.kt
++++ b/app/src/main/kotlin/moe/kongamusic/applemusic/AppleMusicAudioProvider.kt
+@@ -313,7 +313,7 @@ object AppleMusicAudioProvider {
+         artists: List<String>,
+         album: String?,
+         durationMs: Long?,
+-        quality: AppleMusicQuality = AppleMusicQuality.LOSSLESS,
++        quality: AppleMusicQuality = AppleMusicQuality.HI_RES_LOSSLESS,
+     ): List<AppleMusicStream> =
+         withContext(Dispatchers.IO) {
+             val devToken = devToken() ?: return@withContext emptyList()
+diff --git a/app/src/main/kotlin/moe/kongamusic/echo/EchoStreamResolver.kt b/app/src/main/kotlin/moe/kongamusic/echo/EchoStreamResolver.kt
+index 5727fff..3819d1c 100644
+--- a/app/src/main/kotlin/moe/kongamusic/echo/EchoStreamResolver.kt
++++ b/app/src/main/kotlin/moe/kongamusic/echo/EchoStreamResolver.kt
+@@ -575,12 +575,71 @@ object EchoStreamResolver {
+     ): PlayerResponse.StreamingData.Format? {
+         Timber.tag(logTag).d("Finding format with audioQuality: $audioQuality, network metered: ${connectivityManager.isActiveNetworkMetered}")
+ 
+-        val format =
++        val audioFormats =
+             playerResponse.streamingData?.adaptiveFormats
+                 ?.filter { it.isAudio && it.isOriginal }
+-                ?.maxByOrNull {
+-                    it.bitrate * 1 + (if (it.mimeType.startsWith("audio/webm")) 10240 else 0)
++                .orEmpty()
++        if (audioFormats.isEmpty()) return null
++
++        val effectiveQuality =
++            when (audioQuality) {
++                AudioQuality.AUTO -> if (connectivityManager.isActiveNetworkMetered) AudioQuality.HIGH else AudioQuality.HIGHEST
++                else -> audioQuality
++            }
++
++        val targetBitrateBps =
++            when (effectiveQuality) {
++                AudioQuality.LOW -> 70_000
++                AudioQuality.HIGH -> 160_000
++                AudioQuality.HIGHEST -> 320_000
++                AudioQuality.AUTO -> null
++            }
++
++        // Codec rank that prefers lossless (FLAC/ALAC) first, then Opus, then AAC/MP4.
++        // YouTube does not normally expose FLAC/ALAC, but if a lossless codec ever shows up
++        // (e.g. via some clients/experiments), it gets the highest priority so we never
++        // accidentally pick a lossy stream when lossless is available.
++        fun codecRank(mimeType: String): Int {
++            val lower = mimeType.lowercase()
++            return when {
++                lower.contains("flac") -> 100
++                lower.contains("alac") -> 99
++                lower.contains("opus") || lower.contains("audio/webm") -> 3
++                lower.contains("mp4a") || lower.contains("audio/mp4") -> 2
++                else -> 1
++            }
++        }
++
++        val preferHigher =
++            compareByDescending<PlayerResponse.StreamingData.Format> { it.url != null }
++                .thenByDescending { codecRank(it.mimeType) }
++                .thenByDescending { it.bitrate }
++                .thenByDescending { it.audioSampleRate ?: 0 }
++
++        val preferLowerAboveTarget =
++            compareByDescending<PlayerResponse.StreamingData.Format> { it.url != null }
++                .thenByDescending { codecRank(it.mimeType) }
++                .thenBy { it.bitrate }
++                .thenByDescending { it.audioSampleRate ?: 0 }
++
++        val format =
++            when {
++                targetBitrateBps == null || effectiveQuality == AudioQuality.HIGHEST -> {
++                    audioFormats.sortedWith(preferHigher).firstOrNull()
++                }
++
++                else -> {
++                    val preferred =
++                        audioFormats
++                            .filter { it.bitrate <= targetBitrateBps }
++                            .sortedWith(preferHigher)
++                    val fallback =
++                        audioFormats
++                            .filter { it.bitrate > targetBitrateBps }
++                            .sortedWith(preferLowerAboveTarget)
++                    (preferred + fallback).firstOrNull()
+                 }
++            }
+ 
+         if (format != null) {
+             Timber.tag(logTag).d("Selected format: ${format.mimeType}, bitrate: ${format.bitrate}")
+diff --git a/app/src/main/kotlin/moe/kongamusic/playback/DownloadUtil.kt b/app/src/main/kotlin/moe/kongamusic/playback/DownloadUtil.kt
+index 698f765..2216934 100644
+--- a/app/src/main/kotlin/moe/kongamusic/playback/DownloadUtil.kt
++++ b/app/src/main/kotlin/moe/kongamusic/playback/DownloadUtil.kt
+@@ -140,17 +140,17 @@ class DownloadUtil
+         private val appContext: Context = context
+ 
+         private val connectivityManager = context.getSystemService<ConnectivityManager>()!!
+-        private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.AUTO)
++        private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.HIGHEST)
+         private val downloadSource by enumPreference(context, DownloadSourceKey, DownloadSource.AUTO)
+ 
+         private val downloadSourceOrderCsv by preference(context, DownloadSourceOrderKey, "")
+         private val downloadSourceOrder: List<DownloadSource>
+             get() = DownloadSourceConfig.parseOrder(downloadSourceOrderCsv)
+-        private val qobuzAudioQuality by enumPreference(context, QobuzAudioQualityKey, QobuzAudioQuality.FLAC)
+-        private val tidalAudioQuality by enumPreference(context, TidalAudioQualityKey, TidalAudioQuality.FLAC)
++        private val qobuzAudioQuality by enumPreference(context, QobuzAudioQualityKey, QobuzAudioQuality.MAX)
++        private val tidalAudioQuality by enumPreference(context, TidalAudioQualityKey, TidalAudioQuality.HI_RES_LOSSLESS)
+         private val saavnAudioQuality by enumPreference(context, SaavnAudioQualityKey, SaavnAudioQuality.QUALITY_320)
+         private val deezerAudioQuality by enumPreference(context, DeezerAudioQualityKey, DeezerAudioQuality.FLAC)
+-        private val appleMusicQuality by enumPreference(context, AppleMusicQualityKey, AppleMusicQuality.LOSSLESS)
++        private val appleMusicQuality by enumPreference(context, AppleMusicQualityKey, AppleMusicQuality.HI_RES_LOSSLESS)
+         private val downloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+         private val songUrlCache = ConcurrentHashMap<String, AuthScopedCacheValue>()
+ 
+@@ -456,10 +456,7 @@ class DownloadUtil
+                         }
+                     }
+ 
+-                    val lowDataModeActive = context.isLowDataModeActive()
+-                    if (!lowDataModeActive) {
+-                        resolvePreferredDownloadDataSpec(dataSpec, mediaId, songSourcePrefs)?.let { return@Factory it }
+-                    }
++                    resolvePreferredDownloadDataSpec(dataSpec, mediaId, songSourcePrefs)?.let { return@Factory it }
+                 }
+ 
+                 val lowDataMode = context.isLowDataModeActive()
+@@ -1210,7 +1207,7 @@ class DownloadUtil
+         }
+ 
+         private fun resolveDownloadAudioQuality(lowDataModeActive: Boolean): AudioQuality =
+-            if (lowDataModeActive) AudioQuality.LOW else audioQuality
++            audioQuality
+ 
+         private fun buildSongUrlCacheKey(
+             mediaId: String,
+diff --git a/app/src/main/kotlin/moe/kongamusic/playback/MusicService.kt b/app/src/main/kotlin/moe/kongamusic/playback/MusicService.kt
+index d08a41e..07571c9 100644
+--- a/app/src/main/kotlin/moe/kongamusic/playback/MusicService.kt
++++ b/app/src/main/kotlin/moe/kongamusic/playback/MusicService.kt
+@@ -490,7 +490,7 @@ class MusicService :
+     private val audioQuality by enumPreference(
+         this,
+         AudioQualityKey,
+-        moe.kongamusic.constants.AudioQuality.AUTO,
++        moe.kongamusic.constants.AudioQuality.HIGHEST,
+     )
+     private val preferredStreamClient by enumPreference(
+         this,
+@@ -7902,8 +7902,6 @@ class MusicService :
+         if (playbackUrlCache[mediaId] != null) return
+         if (hasFreshDirectStream(mediaId)) return
+ 
+-        if (isLowDataModeActive()) return
+-
+         prefetchingMediaId = mediaId
+         nextMediaItemPrefetchJob =
+             scope.launch(Dispatchers.IO + SilentHandler) {
+@@ -7911,7 +7909,7 @@ class MusicService :
+                     Timber.tag(TAG).d("Prefetching stream URL for next media item: %s", mediaId)
+ 
+                     val lowData = isLowDataModeActive()
+-                    if (!lowData) {
++                    run {
+                         val dataSpec = DataSpec.Builder()
+                             .setUri("placeholder:$mediaId".toUri())
+                             .setKey(mediaId)
+@@ -7929,7 +7927,7 @@ class MusicService :
+                             retryWithoutPlaybackLoginContext {
+                                 YTPlayerUtils.playerResponseForPlayback(
+                                     mediaId,
+-                                    audioQuality = if (lowData) AudioQuality.LOW else audioQuality,
++                                    audioQuality = audioQuality,
+                                     connectivityManager = connectivityManager,
+                                     preferredStreamClient = preferredStreamClient,
+                                     networkMetered = lowData,
+@@ -9042,13 +9040,13 @@ class MusicService :
+     }
+ 
+     private fun parseTidalAudioQuality(): TidalAudioQuality {
+-        val stored = dataStore.get(TidalAudioQualityKey, TidalAudioQuality.FLAC.name)
+-        return runCatching { TidalAudioQuality.valueOf(stored) }.getOrDefault(TidalAudioQuality.FLAC)
++        val stored = dataStore.get(TidalAudioQualityKey, TidalAudioQuality.HI_RES_LOSSLESS.name)
++        return runCatching { TidalAudioQuality.valueOf(stored) }.getOrDefault(TidalAudioQuality.HI_RES_LOSSLESS)
+     }
+ 
+     private fun parseAppleMusicQuality(): AppleMusicQuality {
+-        val stored = dataStore.get(AppleMusicQualityKey, AppleMusicQuality.LOSSLESS.name)
+-        return runCatching { AppleMusicQuality.valueOf(stored) }.getOrDefault(AppleMusicQuality.LOSSLESS)
++        val stored = dataStore.get(AppleMusicQualityKey, AppleMusicQuality.HI_RES_LOSSLESS.name)
++        return runCatching { AppleMusicQuality.valueOf(stored) }.getOrDefault(AppleMusicQuality.HI_RES_LOSSLESS)
+     }
+ 
+     private fun parseTidalInstances(): List<String> =
+@@ -9417,7 +9415,7 @@ class MusicService :
+                     directStreamCache.remove(cacheKey, cached)
+                     continue
+                 }
+-                if (!lowDataModeActive) {
++                run {
+                     Timber.tag("MusicService").d(
+                         "Multi-source cache HIT for %s: %s [%s]",
+                         mediaId,
+@@ -9476,9 +9474,7 @@ class MusicService :
+         }
+ 
+         if (lowDataModeActive && !isDirectPick) {
+-            tidalActiveMediaIds.remove(mediaId)
+-            Timber.tag("MusicService").i("Low-data mode active; skipping Tidal/Qobuz for %s", mediaId)
+-            return null
++            Timber.tag("MusicService").i("Low-data mode active; lossless sources still preferred for %s", mediaId)
+         }
+ 
+         val query = buildSourceQuery(mediaId)
+@@ -10042,8 +10038,8 @@ class MusicService :
+             .filter { it.isNotEmpty() }
+ 
+     private fun parseQobuzAudioQuality(): QobuzAudioQuality {
+-        val stored = dataStore.get(QobuzAudioQualityKey, QobuzAudioQuality.FLAC.name)
+-        return runCatching { QobuzAudioQuality.valueOf(stored) }.getOrDefault(QobuzAudioQuality.FLAC)
++        val stored = dataStore.get(QobuzAudioQualityKey, QobuzAudioQuality.MAX.name)
++        return runCatching { QobuzAudioQuality.valueOf(stored) }.getOrDefault(QobuzAudioQuality.MAX)
+     }
+ 
+     private fun resolveDeezerStream(query: SourceQuery): DirectStream? {
+@@ -10443,7 +10439,7 @@ class MusicService :
+                 retryWithoutPlaybackLoginContext {
+                     YTPlayerUtils.playerResponseForPlayback(
+                         mediaId,
+-                        audioQuality = if (lowDataModeActive) AudioQuality.LOW else audioQuality,
++                        audioQuality = audioQuality,
+                         connectivityManager = connectivityManager,
+                         preferredStreamClient = preferredStreamClient,
+                         networkMetered = lowDataModeActive,
+diff --git a/app/src/main/kotlin/moe/kongamusic/ui/screens/settings/AmazonSettings.kt b/app/src/main/kotlin/moe/kongamusic/ui/screens/settings/AmazonSettings.kt
+index 2466c2e..3f30710 100644
+--- a/app/src/main/kotlin/moe/kongamusic/ui/screens/settings/AmazonSettings.kt
++++ b/app/src/main/kotlin/moe/kongamusic/ui/screens/settings/AmazonSettings.kt
+@@ -102,7 +102,7 @@ fun AmazonSettings(
+     val (_, onSessionChange) = rememberPreference(AmazonSessionKey, "")
+     val (isPremium, onPremiumChange) = rememberPreference(AmazonAccountPremiumKey, false)
+     val (audioQuality, onAudioQualityChange) =
+-        rememberEnumPreference(AmazonAudioQualityKey, AmazonAudioQuality.Default)
++        rememberEnumPreference(AmazonAudioQualityKey, AmazonAudioQuality.ULTRA_HD)
+     val (storedInstances, onStoredInstancesChange) = rememberPreference(AmazonInstancesKey, "")
+ 
+     val headerHaze = rememberScreenHeaderHaze()
+diff --git a/app/src/main/kotlin/moe/kongamusic/ui/screens/settings/PlaybackSourceSections.kt b/app/src/main/kotlin/moe/kongamusic/ui/screens/settings/PlaybackSourceSections.kt
+index 51db176..0d5ee47 100755
+--- a/app/src/main/kotlin/moe/kongamusic/ui/screens/settings/PlaybackSourceSections.kt
++++ b/app/src/main/kotlin/moe/kongamusic/ui/screens/settings/PlaybackSourceSections.kt
+@@ -195,10 +195,10 @@ internal fun PlaybackSourceSections(
+ 
+     val (tidalAccountFirst, onTidalAccountFirstChange) = rememberPreference(TidalAccountFirstKey, true)
+     val (audioQuality, onAudioQualityChange) =
+-        rememberEnumPreference(TidalAudioQualityKey, TidalAudioQuality.FLAC)
++        rememberEnumPreference(TidalAudioQualityKey, TidalAudioQuality.HI_RES_LOSSLESS)
+ 
+     val (ytAudioQuality, onYtAudioQualityChange) =
+-        rememberEnumPreference(AudioQualityKey, defaultValue = AudioQuality.AUTO)
++        rememberEnumPreference(AudioQualityKey, defaultValue = AudioQuality.HIGHEST)
+     val (playerStreamClient, onPlayerStreamClientChange) =
+         rememberEnumPreference(PlayerStreamClientKey, defaultValue = PlayerStreamClient.WEB_REMIX)
+     val (autoChoosePlaybackClient, onAutoChoosePlaybackClientChange) =
+@@ -226,14 +226,14 @@ internal fun PlaybackSourceSections(
+     }
+ 
+     val (qobuzQuality, onQobuzQualityChange) =
+-        rememberEnumPreference(QobuzAudioQualityKey, QobuzAudioQuality.FLAC)
++        rememberEnumPreference(QobuzAudioQualityKey, QobuzAudioQuality.MAX)
+     val (qobuzBackupEnabled, onQobuzBackupEnabledChange) = rememberPreference(QobuzBackupEnabledKey, false)
+     val (qobuzBackupEndpoints, onQobuzBackupEndpointsChange) =
+         rememberPreference(QobuzBackupEndpointsKey, "")
+     var showQobuzBackupEndpointsDialog by rememberSaveable { mutableStateOf(false) }
+     var qobuzBackupEndpointsDraft by rememberSaveable { mutableStateOf("") }
+     val (appleMusicQuality, onAppleMusicQualityChange) =
+-        rememberEnumPreference(AppleMusicQualityKey, AppleMusicQuality.LOSSLESS)
++        rememberEnumPreference(AppleMusicQualityKey, AppleMusicQuality.HI_RES_LOSSLESS)
+ 
+     val (animatedCovers, onAnimatedCoversChange) =
+         rememberPreference(TidalAnimatedCoversEnabledKey, false)
+diff --git a/app/src/main/kotlin/moe/kongamusic/ui/screens/settings/QobuzSettings.kt b/app/src/main/kotlin/moe/kongamusic/ui/screens/settings/QobuzSettings.kt
+index 28ec7e4..8a27e1c 100755
+--- a/app/src/main/kotlin/moe/kongamusic/ui/screens/settings/QobuzSettings.kt
++++ b/app/src/main/kotlin/moe/kongamusic/ui/screens/settings/QobuzSettings.kt
+@@ -120,7 +120,7 @@ fun QobuzSettings(navController: NavController, scrollTo: String? = null) {
+ 
+     val (qobuzEnabled, onQobuzEnabledChange) = rememberPreference(QobuzEnabledKey, false)
+     val (audioQuality, onAudioQualityChange) =
+-        rememberEnumPreference(QobuzAudioQualityKey, QobuzAudioQuality.FLAC)
++        rememberEnumPreference(QobuzAudioQualityKey, QobuzAudioQuality.MAX)
+     val probeTrack by rememberPreference(QobuzLastProbeTrackKey, "")
+ 
+     val (storedInstances, onStoredInstancesChange) = rememberPreference(QobuzInstancesKey, "")
+diff --git a/app/src/main/kotlin/moe/kongamusic/utils/YTPlayerUtils.kt b/app/src/main/kotlin/moe/kongamusic/utils/YTPlayerUtils.kt
+index c2c1d63..4521842 100755
+--- a/app/src/main/kotlin/moe/kongamusic/utils/YTPlayerUtils.kt
++++ b/app/src/main/kotlin/moe/kongamusic/utils/YTPlayerUtils.kt
+@@ -1821,6 +1821,8 @@ object YTPlayerUtils {
+     private fun codecRank(codec: String?): Int =
+         when {
+             codec.isNullOrBlank() -> 0
++            codec.contains("flac", ignoreCase = true) -> 100
++            codec.contains("alac", ignoreCase = true) -> 99
+             codec.contains("opus", ignoreCase = true) -> 3
+             codec.contains("mp4a", ignoreCase = true) -> 2
+             else -> 1
+@@ -1829,6 +1831,8 @@ object YTPlayerUtils {
+     private fun codecRankPreferM4A(codec: String?): Int =
+         when {
+             codec.isNullOrBlank() -> 0
++            codec.contains("flac", ignoreCase = true) -> 100
++            codec.contains("alac", ignoreCase = true) -> 99
+             codec.contains("mp4a", ignoreCase = true) -> 3
+             codec.contains("opus", ignoreCase = true) -> 2
+             else -> 1
