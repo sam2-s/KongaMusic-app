@@ -44,6 +44,7 @@ import moe.kongamusic.constants.AudioQualityKey
 import moe.kongamusic.constants.DownloadSource
 import moe.kongamusic.constants.DownloadSourceConfig
 import moe.kongamusic.constants.DownloadSourceKey
+import moe.kongamusic.constants.LosslessOnlyModeKey
 import moe.kongamusic.constants.DownloadSourceOrderKey
 import moe.kongamusic.constants.DeezerAudioQuality
 import moe.kongamusic.constants.DeezerAudioQualityKey
@@ -140,17 +141,24 @@ class DownloadUtil
         private val appContext: Context = context
 
         private val connectivityManager = context.getSystemService<ConnectivityManager>()!!
-        private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.AUTO)
+        private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.HIGHEST)
         private val downloadSource by enumPreference(context, DownloadSourceKey, DownloadSource.AUTO)
 
         private val downloadSourceOrderCsv by preference(context, DownloadSourceOrderKey, "")
         private val downloadSourceOrder: List<DownloadSource>
             get() = DownloadSourceConfig.parseOrder(downloadSourceOrderCsv)
-        private val qobuzAudioQuality by enumPreference(context, QobuzAudioQualityKey, QobuzAudioQuality.FLAC)
-        private val tidalAudioQuality by enumPreference(context, TidalAudioQualityKey, TidalAudioQuality.FLAC)
+        private val qobuzAudioQuality by enumPreference(context, QobuzAudioQualityKey, QobuzAudioQuality.MAX)
+        private val tidalAudioQuality by enumPreference(context, TidalAudioQualityKey, TidalAudioQuality.HI_RES_LOSSLESS)
         private val saavnAudioQuality by enumPreference(context, SaavnAudioQualityKey, SaavnAudioQuality.QUALITY_320)
         private val deezerAudioQuality by enumPreference(context, DeezerAudioQualityKey, DeezerAudioQuality.FLAC)
-        private val appleMusicQuality by enumPreference(context, AppleMusicQualityKey, AppleMusicQuality.LOSSLESS)
+        private val appleMusicQuality by enumPreference(context, AppleMusicQualityKey, AppleMusicQuality.HI_RES_LOSSLESS)
+        /**
+         * When true, downloads never fall back to YouTube. If a song isn't available
+         * on any lossless source (Tidal/Qobuz/Apple/Deezer/Telegram), the download
+         * will fail with an IOException instead of silently saving a lossy file.
+         */
+        private val losslessOnlyMode: Boolean
+            get() = appContext.dataStore.get(LosslessOnlyModeKey, false)
         private val downloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val songUrlCache = ConcurrentHashMap<String, AuthScopedCacheValue>()
 
@@ -456,10 +464,19 @@ class DownloadUtil
                         }
                     }
 
-                    val lowDataModeActive = context.isLowDataModeActive()
-                    if (!lowDataModeActive) {
-                        resolvePreferredDownloadDataSpec(dataSpec, mediaId, songSourcePrefs)?.let { return@Factory it }
-                    }
+                    resolvePreferredDownloadDataSpec(dataSpec, mediaId, songSourcePrefs)?.let { return@Factory it }
+                }
+
+                // Lossless-only mode: never fall back to YouTube for downloads.
+                if (losslessOnlyMode) {
+                    Timber.tag("DownloadUtil").w(
+                        "Lossless-only mode active: refusing YouTube download fallback for %s (no lossless source available)",
+                        mediaId,
+                    )
+                    throw IOException(
+                        "Lossless-only mode is enabled and no lossless source is available for this song. " +
+                            "Disable \"Lossless only mode\" in Settings → Player & Audio to fall back to YouTube.",
+                    )
                 }
 
                 val lowDataMode = context.isLowDataModeActive()
@@ -728,6 +745,15 @@ class DownloadUtil
             }
 
             if (target.source == DownloadSource.YOUTUBE_MUSIC) {
+                return null
+            }
+
+            // Lossless-only mode: do not prewarm the YouTube fallback stream.
+            if (losslessOnlyMode) {
+                Timber.tag("DownloadUtil").d(
+                    "prewarmSongForDownload: lossless-only mode active, skipping YouTube fallback for %s",
+                    mediaId,
+                )
                 return null
             }
 
@@ -1210,7 +1236,7 @@ class DownloadUtil
         }
 
         private fun resolveDownloadAudioQuality(lowDataModeActive: Boolean): AudioQuality =
-            if (lowDataModeActive) AudioQuality.LOW else audioQuality
+            audioQuality
 
         private fun buildSongUrlCacheKey(
             mediaId: String,
