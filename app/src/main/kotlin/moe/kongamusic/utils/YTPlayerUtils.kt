@@ -1821,8 +1821,6 @@ object YTPlayerUtils {
     private fun codecRank(codec: String?): Int =
         when {
             codec.isNullOrBlank() -> 0
-            codec.contains("flac", ignoreCase = true) -> 100
-            codec.contains("alac", ignoreCase = true) -> 99
             codec.contains("opus", ignoreCase = true) -> 3
             codec.contains("mp4a", ignoreCase = true) -> 2
             else -> 1
@@ -1831,8 +1829,6 @@ object YTPlayerUtils {
     private fun codecRankPreferM4A(codec: String?): Int =
         when {
             codec.isNullOrBlank() -> 0
-            codec.contains("flac", ignoreCase = true) -> 100
-            codec.contains("alac", ignoreCase = true) -> 99
             codec.contains("mp4a", ignoreCase = true) -> 3
             codec.contains("opus", ignoreCase = true) -> 2
             else -> 1

@@ -120,7 +120,7 @@ fun QobuzSettings(navController: NavController, scrollTo: String? = null) {
 
     val (qobuzEnabled, onQobuzEnabledChange) = rememberPreference(QobuzEnabledKey, false)
     val (audioQuality, onAudioQualityChange) =
-        rememberEnumPreference(QobuzAudioQualityKey, QobuzAudioQuality.MAX)
+        rememberEnumPreference(QobuzAudioQualityKey, QobuzAudioQuality.FLAC)
     val probeTrack by rememberPreference(QobuzLastProbeTrackKey, "")
 
     val (storedInstances, onStoredInstancesChange) = rememberPreference(QobuzInstancesKey, "")

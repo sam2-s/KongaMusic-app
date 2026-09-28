@@ -140,17 +140,17 @@ class DownloadUtil
         private val appContext: Context = context
 
         private val connectivityManager = context.getSystemService<ConnectivityManager>()!!
-        private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.HIGHEST)
+        private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.AUTO)
         private val downloadSource by enumPreference(context, DownloadSourceKey, DownloadSource.AUTO)
 
         private val downloadSourceOrderCsv by preference(context, DownloadSourceOrderKey, "")
         private val downloadSourceOrder: List<DownloadSource>
             get() = DownloadSourceConfig.parseOrder(downloadSourceOrderCsv)
-        private val qobuzAudioQuality by enumPreference(context, QobuzAudioQualityKey, QobuzAudioQuality.MAX)
-        private val tidalAudioQuality by enumPreference(context, TidalAudioQualityKey, TidalAudioQuality.HI_RES_LOSSLESS)
+        private val qobuzAudioQuality by enumPreference(context, QobuzAudioQualityKey, QobuzAudioQuality.FLAC)
+        private val tidalAudioQuality by enumPreference(context, TidalAudioQualityKey, TidalAudioQuality.FLAC)
         private val saavnAudioQuality by enumPreference(context, SaavnAudioQualityKey, SaavnAudioQuality.QUALITY_320)
         private val deezerAudioQuality by enumPreference(context, DeezerAudioQualityKey, DeezerAudioQuality.FLAC)
-        private val appleMusicQuality by enumPreference(context, AppleMusicQualityKey, AppleMusicQuality.HI_RES_LOSSLESS)
+        private val appleMusicQuality by enumPreference(context, AppleMusicQualityKey, AppleMusicQuality.LOSSLESS)
         private val downloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val songUrlCache = ConcurrentHashMap<String, AuthScopedCacheValue>()
 
@@ -456,7 +456,10 @@ class DownloadUtil
                         }
                     }
 
-                    resolvePreferredDownloadDataSpec(dataSpec, mediaId, songSourcePrefs)?.let { return@Factory it }
+                    val lowDataModeActive = context.isLowDataModeActive()
+                    if (!lowDataModeActive) {
+                        resolvePreferredDownloadDataSpec(dataSpec, mediaId, songSourcePrefs)?.let { return@Factory it }
+                    }
                 }
 
                 val lowDataMode = context.isLowDataModeActive()
@@ -1207,7 +1210,7 @@ class DownloadUtil
         }
 
         private fun resolveDownloadAudioQuality(lowDataModeActive: Boolean): AudioQuality =
-            audioQuality
+            if (lowDataModeActive) AudioQuality.LOW else audioQuality
 
         private fun buildSongUrlCacheKey(
             mediaId: String,

@@ -195,10 +195,10 @@ internal fun PlaybackSourceSections(
 
     val (tidalAccountFirst, onTidalAccountFirstChange) = rememberPreference(TidalAccountFirstKey, true)
     val (audioQuality, onAudioQualityChange) =
-        rememberEnumPreference(TidalAudioQualityKey, TidalAudioQuality.HI_RES_LOSSLESS)
+        rememberEnumPreference(TidalAudioQualityKey, TidalAudioQuality.FLAC)
 
     val (ytAudioQuality, onYtAudioQualityChange) =
-        rememberEnumPreference(AudioQualityKey, defaultValue = AudioQuality.HIGHEST)
+        rememberEnumPreference(AudioQualityKey, defaultValue = AudioQuality.AUTO)
     val (playerStreamClient, onPlayerStreamClientChange) =
         rememberEnumPreference(PlayerStreamClientKey, defaultValue = PlayerStreamClient.WEB_REMIX)
     val (autoChoosePlaybackClient, onAutoChoosePlaybackClientChange) =
@@ -226,14 +226,14 @@ internal fun PlaybackSourceSections(
     }
 
     val (qobuzQuality, onQobuzQualityChange) =
-        rememberEnumPreference(QobuzAudioQualityKey, QobuzAudioQuality.MAX)
+        rememberEnumPreference(QobuzAudioQualityKey, QobuzAudioQuality.FLAC)
     val (qobuzBackupEnabled, onQobuzBackupEnabledChange) = rememberPreference(QobuzBackupEnabledKey, false)
     val (qobuzBackupEndpoints, onQobuzBackupEndpointsChange) =
         rememberPreference(QobuzBackupEndpointsKey, "")
     var showQobuzBackupEndpointsDialog by rememberSaveable { mutableStateOf(false) }
     var qobuzBackupEndpointsDraft by rememberSaveable { mutableStateOf("") }
     val (appleMusicQuality, onAppleMusicQualityChange) =
-        rememberEnumPreference(AppleMusicQualityKey, AppleMusicQuality.HI_RES_LOSSLESS)
+        rememberEnumPreference(AppleMusicQualityKey, AppleMusicQuality.LOSSLESS)
 
     val (animatedCovers, onAnimatedCoversChange) =
         rememberPreference(TidalAnimatedCoversEnabledKey, false)
