@@ -457,6 +457,17 @@ val AudioQualityKey = stringPreferencesKey("audioQuality")
 val NetworkMeteredKey = booleanPreferencesKey("networkMetered")
 val LowDataModeKey = NetworkMeteredKey
 
+/**
+ * When enabled, the app will never fall back to YouTube for streaming or
+ * downloading — only lossless sources (Tidal / Qobuz / Apple Music / Deezer /
+ * Telegram) are used. If a song is not available on any lossless source,
+ * playback/download will fail instead of silently serving a lossy stream.
+ *
+ * YouTube itself does not provide a lossless tier, so this is the only way
+ * to guarantee truly lossless audio.
+ */
+val LosslessOnlyModeKey = booleanPreferencesKey("losslessOnlyMode")
+
 enum class AudioQuality {
     AUTO,
     HIGH,
