@@ -102,7 +102,7 @@ fun AmazonSettings(
     val (_, onSessionChange) = rememberPreference(AmazonSessionKey, "")
     val (isPremium, onPremiumChange) = rememberPreference(AmazonAccountPremiumKey, false)
     val (audioQuality, onAudioQualityChange) =
-        rememberEnumPreference(AmazonAudioQualityKey, AmazonAudioQuality.Default)
+        rememberEnumPreference(AmazonAudioQualityKey, AmazonAudioQuality.ULTRA_HD)
     val (storedInstances, onStoredInstancesChange) = rememberPreference(AmazonInstancesKey, "")
 
     val headerHaze = rememberScreenHeaderHaze()
