@@ -669,6 +669,9 @@
     <string name="audio_quality_auto">Auto</string>
     <string name="audio_quality_high">High</string>
     <string name="audio_quality_low">Low</string>
+    <string name="lossless_only_mode_title">Lossless only mode</string>
+    <string name="lossless_only_mode_description">Never fall back to YouTube. Songs not available on Tidal, Qobuz, Apple Music, Deezer or Telegram will fail to play or download instead of streaming a lossy YouTube copy. YouTube does not offer a lossless tier.</string>
+    <string name="lossless_only_mode_playback_error">This song is not available on any lossless source. Disable \&quot;Lossless only mode\&quot; to fall back to YouTube.</string>
     <string name="low_data_mode_title">Low Data Mode</string>
     <string name="low_data_mode_description">On metered networks, drop to low quality and disable the lossless sources.</string>
     <string name="queue">Queue</string>
