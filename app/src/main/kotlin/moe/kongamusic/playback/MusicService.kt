@@ -146,6 +146,7 @@ import moe.kongamusic.constants.PreloadSongsCountKey
 import moe.kongamusic.constants.AudioOffload
 import moe.kongamusic.constants.AudioQuality
 import moe.kongamusic.constants.AudioQualityKey
+import moe.kongamusic.constants.LosslessOnlyModeKey
 import moe.kongamusic.constants.DownloadSourceConfig
 import moe.kongamusic.constants.AutoDownloadOnLikeKey
 import moe.kongamusic.constants.AutoLoadMoreKey
@@ -490,8 +491,15 @@ class MusicService :
     private val audioQuality by enumPreference(
         this,
         AudioQualityKey,
-        moe.kongamusic.constants.AudioQuality.AUTO,
+        moe.kongamusic.constants.AudioQuality.HIGHEST,
     )
+    /**
+     * When true, the YouTube fallback is never used. If a song cannot be resolved
+     * via Tidal/Qobuz/Apple/Deezer/Telegram, playback will fail instead of serving
+     * a lossy YouTube stream.
+     */
+    private val losslessOnlyMode: Boolean
+        get() = dataStore.get(LosslessOnlyModeKey, false)
     private val preferredStreamClient by enumPreference(
         this,
         PlayerStreamClientKey,
@@ -7902,8 +7910,6 @@ class MusicService :
         if (playbackUrlCache[mediaId] != null) return
         if (hasFreshDirectStream(mediaId)) return
 
-        if (isLowDataModeActive()) return
-
         prefetchingMediaId = mediaId
         nextMediaItemPrefetchJob =
             scope.launch(Dispatchers.IO + SilentHandler) {
@@ -7911,7 +7917,7 @@ class MusicService :
                     Timber.tag(TAG).d("Prefetching stream URL for next media item: %s", mediaId)
 
                     val lowData = isLowDataModeActive()
-                    if (!lowData) {
+                    run {
                         val dataSpec = DataSpec.Builder()
                             .setUri("placeholder:$mediaId".toUri())
                             .setKey(mediaId)
@@ -7924,12 +7930,18 @@ class MusicService :
                         }
                     }
 
+                    // Lossless-only mode: do not prefetch the YouTube fallback.
+                    if (losslessOnlyMode) {
+                        Timber.tag(TAG).d("Prefetch: lossless-only mode active; skipping YouTube fallback for %s", mediaId)
+                        return@runCatching
+                    }
+
                     if (preferredStreamClient != PlayerStreamClient.KONGAMUSIC_EXTRACTOR) {
                         val result =
                             retryWithoutPlaybackLoginContext {
                                 YTPlayerUtils.playerResponseForPlayback(
                                     mediaId,
-                                    audioQuality = if (lowData) AudioQuality.LOW else audioQuality,
+                                    audioQuality = audioQuality,
                                     connectivityManager = connectivityManager,
                                     preferredStreamClient = preferredStreamClient,
                                     networkMetered = lowData,
@@ -9042,13 +9054,13 @@ class MusicService :
     }
 
     private fun parseTidalAudioQuality(): TidalAudioQuality {
-        val stored = dataStore.get(TidalAudioQualityKey, TidalAudioQuality.FLAC.name)
-        return runCatching { TidalAudioQuality.valueOf(stored) }.getOrDefault(TidalAudioQuality.FLAC)
+        val stored = dataStore.get(TidalAudioQualityKey, TidalAudioQuality.HI_RES_LOSSLESS.name)
+        return runCatching { TidalAudioQuality.valueOf(stored) }.getOrDefault(TidalAudioQuality.HI_RES_LOSSLESS)
     }
 
     private fun parseAppleMusicQuality(): AppleMusicQuality {
-        val stored = dataStore.get(AppleMusicQualityKey, AppleMusicQuality.LOSSLESS.name)
-        return runCatching { AppleMusicQuality.valueOf(stored) }.getOrDefault(AppleMusicQuality.LOSSLESS)
+        val stored = dataStore.get(AppleMusicQualityKey, AppleMusicQuality.HI_RES_LOSSLESS.name)
+        return runCatching { AppleMusicQuality.valueOf(stored) }.getOrDefault(AppleMusicQuality.HI_RES_LOSSLESS)
     }
 
     private fun parseTidalInstances(): List<String> =
@@ -9417,7 +9429,7 @@ class MusicService :
                     directStreamCache.remove(cacheKey, cached)
                     continue
                 }
-                if (!lowDataModeActive) {
+                run {
                     Timber.tag("MusicService").d(
                         "Multi-source cache HIT for %s: %s [%s]",
                         mediaId,
@@ -9476,9 +9488,7 @@ class MusicService :
         }
 
         if (lowDataModeActive && !isDirectPick) {
-            tidalActiveMediaIds.remove(mediaId)
-            Timber.tag("MusicService").i("Low-data mode active; skipping Tidal/Qobuz for %s", mediaId)
-            return null
+            Timber.tag("MusicService").i("Low-data mode active; lossless sources still preferred for %s", mediaId)
         }
 
         val query = buildSourceQuery(mediaId)
@@ -10042,8 +10052,8 @@ class MusicService :
             .filter { it.isNotEmpty() }
 
     private fun parseQobuzAudioQuality(): QobuzAudioQuality {
-        val stored = dataStore.get(QobuzAudioQualityKey, QobuzAudioQuality.FLAC.name)
-        return runCatching { QobuzAudioQuality.valueOf(stored) }.getOrDefault(QobuzAudioQuality.FLAC)
+        val stored = dataStore.get(QobuzAudioQualityKey, QobuzAudioQuality.MAX.name)
+        return runCatching { QobuzAudioQuality.valueOf(stored) }.getOrDefault(QobuzAudioQuality.MAX)
     }
 
     private fun resolveDeezerStream(query: SourceQuery): DirectStream? {
@@ -10407,6 +10417,20 @@ class MusicService :
             return sourceDataSpec
         }
 
+        // Lossless-only mode: never fall back to YouTube (the extractor is also YouTube-based).
+        // If we reached this point, no lossless source produced a stream — fail playback instead.
+        if (losslessOnlyMode) {
+            Timber.tag("MusicService").w(
+                "Lossless-only mode active: refusing YouTube fallback for %s (no lossless source available)",
+                mediaId,
+            )
+            scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
+            throw IOException(
+                "Lossless-only mode is enabled and no lossless source is available for this song. " +
+                    "Disable \"Lossless only mode\" in Settings → Player & Audio to fall back to YouTube.",
+            )
+        }
+
         if (preferredStreamClient == PlayerStreamClient.KONGAMUSIC_EXTRACTOR) {
             return resolveKongamusicExtractorDataSpec(
                 dataSpec = dataSpec,
@@ -10443,7 +10467,7 @@ class MusicService :
                 retryWithoutPlaybackLoginContext {
                     YTPlayerUtils.playerResponseForPlayback(
                         mediaId,
-                        audioQuality = if (lowDataModeActive) AudioQuality.LOW else audioQuality,
+                        audioQuality = audioQuality,
                         connectivityManager = connectivityManager,
                         preferredStreamClient = preferredStreamClient,
                         networkMetered = lowDataModeActive,
