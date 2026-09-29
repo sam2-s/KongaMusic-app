@@ -792,9 +792,13 @@ class MainActivity : ComponentActivity() {
                 NavigationBarTintFrostedBlurKey,
                 defaultValue = false,
             )
+            // Matches the default at the other 19 read sites; MainActivity was the
+            // lone outlier defaulting to true, so on a fresh install the top bar
+            // mounted a blur with no registered haze source while every screen
+            // header's own haze stayed disabled.
             val liquidGlassEnabled by rememberPreference(
                 LiquidGlassEnabledKey,
-                defaultValue = true,
+                defaultValue = false,
             )
             val liquidGlassNavBarEnabled by rememberPreference(
                 LiquidGlassNavBarEnabledKey,
@@ -1283,7 +1287,15 @@ class MainActivity : ComponentActivity() {
                         defaultValue = MiniPlayerBackgroundStyle.THEME,
                     )
                     val navBarFrostedBackdrop =
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        // Only allocate/record the offscreen layer when something can
+                        // actually read it. Its sole consumer (FloatingNavigationToolbar)
+                        // gates on frostedBlur && !tintFrostedBlur, both off by default,
+                        // so gating only on SDK >= S made the whole NavHost re-record
+                        // into a full-screen offscreen buffer every frame on every
+                        // Android 12+ device, for a layer nothing ever drew.
+                        if (navigationBarFrostedBlur && !navigationBarTintFrostedBlur &&
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                        ) {
                             val frostedLayer = rememberGraphicsLayer()
                             remember(frostedLayer) { NavigationBarBackdrop(frostedLayer) }
                         } else {

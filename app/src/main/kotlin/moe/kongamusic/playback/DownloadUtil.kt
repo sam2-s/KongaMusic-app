@@ -263,6 +263,13 @@ class DownloadUtil
          * the old `runBlocking` parked a UI thread and pulled the whole
          * `Preferences` object on every download progress tick — per row.
          */
+        /**
+         * Read through the snapshot-backed `dataStore[key]` extension rather than
+         * `dataStore.data.first()`. This runs from `getDownload()`, whose Flow is
+         * collected by `collectAsStateWithLifecycle` once per visible list row, so
+         * the old `runBlocking` parked a UI thread and pulled the entire
+         * `Preferences` object on every download progress tick — once per row.
+         */
         private fun readSongSourcePreferences(mediaId: String): SongSourcePreferences =
             SongSourcePreferences(
                 overrideSource = SongSourceOverride.get(appContext.dataStore[SongSourceOverrideKey], mediaId),
