@@ -276,7 +276,7 @@ fun buildSettingsGroups(
             keywords = listOf("playback", "player", "audio", "quality", "equalizer", "eq", "volume", "crossfade", "gapless", "flac", "lossless", "hi-res", "sample rate", "bitrate", "video", "music video", "video playback", "pip", "picture in picture", "floating", "minimize"),
             onClick = { navController.navigate("settings/player") },
             children = listOf(
-                SettingsChild("Low data mode", "low_data_mode", listOf("data", "data saver", "low quality", "data mode")) { SearchResultSwitch(LowDataModeKey, true) },
+                SettingsChild("Low data mode", "low_data_mode", listOf("data", "data saver", "low quality", "data mode")) { SearchResultSwitch(LowDataModeKey, false) },
                 SettingsChild("Enable video playback", "enable_video_playback", listOf("video", "music video", "mv", "video playback", "captions", "subtitles")) { SearchResultSwitch(EnableVideoPlaybackKey, true) },
                 SettingsChild("Enable PiP mode", "enable_pip_mode", listOf("pip", "picture in picture", "floating video", "minimize", "pop out", "overlay")) { SearchResultSwitch(EnablePipModeKey, false) },
                 SettingsChild("History duration", "history_duration", listOf("history", "duration", "recent", "queue length")),
@@ -552,7 +552,7 @@ fun buildSettingsGroups(
                 SettingsChild("Disable screenshot", "disable_screenshot", listOf("screenshot", "screen capture", "privacy", "no screenshot")) { SearchResultSwitch(DisableScreenshotKey, false) },
                 SettingsChild("Network metered", "network_metered", listOf("metered", "mobile data", "cellular", "data saver")) { SearchResultSwitch(NetworkMeteredKey, false) },
                 SettingsChild("Show tags in library", "show_tags_in_library", listOf("tags", "library tags", "show tags")),
-                SettingsChild("Low data mode", "low_data_mode", listOf("low data", "data saver", "save data", "metered", "data mode")) { SearchResultSwitch(LowDataModeKey, true) },
+                SettingsChild("Low data mode", "low_data_mode", listOf("low data", "data saver", "save data", "metered", "data mode")) { SearchResultSwitch(LowDataModeKey, false) },
                 SettingsChild("Force high refresh rate", "force_high_refresh_rate", listOf("refresh rate", "high refresh", "120hz", "90hz", "smooth")) { SearchResultSwitch(ForceHighRefreshRateKey, false) },
                 SettingsChild("Open supported links by default", "open_supported_links", listOf("open links", "supported links", "default links", "deep link", "default browser app")),
             ),

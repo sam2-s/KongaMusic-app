@@ -111,7 +111,7 @@ fun PrivacySettings(
     val (lowDataMode, onLowDataModeChange) =
         rememberPreference(
             key = LowDataModeKey,
-            defaultValue = true,
+            defaultValue = false,
         )
     val (forceHighRefreshRate, onForceHighRefreshRateChange) =
         rememberPreference(

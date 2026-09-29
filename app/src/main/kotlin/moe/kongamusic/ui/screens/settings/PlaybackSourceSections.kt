@@ -205,7 +205,7 @@ internal fun PlaybackSourceSections(
     val (autoChoosePlaybackClient, onAutoChoosePlaybackClientChange) =
         rememberPreference(AutoChoosePlaybackClientKey, true)
     val (losslessOnlyMode, onLosslessOnlyModeChange) =
-        rememberPreference(LosslessOnlyModeKey, false)
+        rememberPreference(LosslessOnlyModeKey, true)
     val (innerTubeCookie, _) = rememberPreference(InnerTubeCookieKey, defaultValue = "")
     val (poTokenGvs, _) = rememberPreference(PoTokenGvsKey, defaultValue = "")
     val (poTokenPlayer, _) = rememberPreference(PoTokenPlayerKey, defaultValue = "")
