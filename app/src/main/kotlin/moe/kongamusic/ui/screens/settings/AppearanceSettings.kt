@@ -215,7 +215,7 @@ fun AppearanceSettings(navController: NavController, scrollTo: String? = null) {
     val (liquidGlassEnabled, onLiquidGlassEnabledChange) =
         rememberPreference(
             LiquidGlassEnabledKey,
-            defaultValue = false,
+            defaultValue = true,
         )
     val (pureBlack, onPureBlackChange) = rememberPreference(PureBlackKey, defaultValue = false)
     val (disableBlur, onDisableBlurChange) = rememberPreference(DisableBlurKey, defaultValue = false)
@@ -342,7 +342,9 @@ fun AppearanceSettings(navController: NavController, scrollTo: String? = null) {
             PlayerDesignStyle.V9,
             PlayerDesignStyle.APPLE_MUSIC,
             PlayerDesignStyle.V10,
-            PlayerDesignStyle.BITCHORD,
+            // BitChord is self-contained like the other vendored styles, so it keeps
+            // its own visual switch (the Liquid Glass surface toggle below) rather
+            // than inheriting the numbered styles' shared backdrop/font options.
             PlayerDesignStyle.TIKTOK,
             PlayerDesignStyle.SIMPMUSIC,
             PlayerDesignStyle.SPATIALFLOW,
