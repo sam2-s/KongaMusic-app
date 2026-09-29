@@ -7,7 +7,7 @@
 
 package moe.kongamusic.ai
 
-import moe.koiverse.rukamori.betterlyrics.QRCParser
+import moe.rukamori.archivetune.betterlyrics.QRCParser
 import moe.kongamusic.lyrics.LyricsUtils
 import org.w3c.dom.Document
 import org.w3c.dom.Element

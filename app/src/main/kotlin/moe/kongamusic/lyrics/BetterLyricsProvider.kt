@@ -9,7 +9,7 @@ package moe.kongamusic.lyrics
 
 import android.content.Context
 import android.util.Log
-import moe.koiverse.rukamori.betterlyrics.BetterLyrics
+import moe.rukamori.archivetune.betterlyrics.BetterLyrics
 import moe.kongamusic.constants.EnableBetterLyricsKey
 import moe.kongamusic.utils.GlobalLog
 import moe.kongamusic.utils.dataStore
