@@ -675,8 +675,8 @@
     <string name="lossless_only_mode_description">Off by default, because it means a song with no lossless source will not play at all. When on, streaming never falls back to YouTube. Downloads are controlled separately by \"Lossless downloads only\".</string>
     <string name="lossless_only_mode_playback_error">This song is not available on any lossless source, and Lossless streaming only is on. Turn it off in Settings → Player &amp; Audio to play from YouTube.</string>
     <string name="lossless_download_only_title">Lossless downloads only</string>
-    <string name="lossless_download_only_description">On by default. Downloads are taken from Qobuz, Tidal, Apple Music or Deezer only, so a saved file is never silently lossy. If none of them has a track, the download fails instead of falling back to YouTube. JioSaavn is never used for downloads.</string>
-    <string name="lossless_download_unavailable_error">No lossless source has this track. Qobuz, Tidal, Apple Music and Deezer were all tried. Sign in to one of them in Settings, or turn off \"Lossless downloads only\" to download from YouTube.</string>
+    <string name="lossless_download_only_description">Off by default. When on, downloads come from Qobuz, Tidal, Apple Music or Deezer only, and a download fails if none of them has the track. When off, those sources are still tried first and YouTube is used as a fallback, so Opus and AAC downloads still work.</string>
+    <string name="lossless_download_unavailable_error">No lossless source has this track, and Lossless downloads only is on. Qobuz, Tidal, Apple Music and Deezer were all tried. Sign in to one of them in Settings, or turn off \"Lossless downloads only\" to download from YouTube.</string>
     <string name="low_data_mode_title">Low Data Mode</string>
     <string name="low_data_mode_description">On metered networks, drop the YouTube fallback to low quality. Lossless sources stay enabled.</string>
     <string name="queue">Queue</string>

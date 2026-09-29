@@ -154,15 +154,18 @@ class DownloadUtil
         private val deezerAudioQuality by enumPreference(context, DeezerAudioQualityKey, DeezerAudioQuality.FLAC)
         private val appleMusicQuality by enumPreference(context, AppleMusicQualityKey, AppleMusicQuality.HI_RES_LOSSLESS)
         /**
-         * When true (the default) downloads never fall back to YouTube: only
-         * Qobuz / Tidal / Apple Music / Deezer may produce the file, and a track
-         * none of them has fails with an actionable error instead of silently
-         * saving a lossy copy. Deliberately a different preference from the
-         * streaming-side [LosslessOnlyModeKey] — the two want opposite
-         * trade-offs, and sharing one key meant turning either on turned both on.
+         * When true, downloads never fall back to YouTube: only Qobuz / Tidal /
+         * Apple Music / Deezer may produce the file, and a track none of them has
+         * fails with an actionable error instead of silently saving a lossy copy.
+         *
+         * Off by default — a failed download is worse than an Opus or AAC file,
+         * so the chain falls through to YouTube as it always did. Deliberately a
+         * different preference from the streaming-side [LosslessOnlyModeKey]: the
+         * two want opposite trade-offs, and sharing one key meant turning either
+         * on turned both on.
          */
         private val losslessDownloadOnly: Boolean
-            get() = appContext.dataStore.get(LosslessDownloadOnlyKey, true)
+            get() = appContext.dataStore.get(LosslessDownloadOnlyKey, false)
         private val downloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val songUrlCache = ConcurrentHashMap<String, AuthScopedCacheValue>()
 
@@ -294,15 +297,16 @@ class DownloadUtil
                     .takeWhile { it != DownloadSource.YOUTUBE_MUSIC }
                     .filter { it != DownloadSource.AUTO }
                     // JioSaavn is 320/160/96 kbps AAC, so it can never satisfy
-                    // lossless-only mode. Dropped here so a download either comes
-                    // from a real lossless source or fails, instead of silently
-                    // saving a lossy file.
+                    // lossless-download-only. Dropped only while that mode is on;
+                    // with it off (the default) Saavn is a valid fallback ahead of
+                    // YouTube, exactly as upstream orders it.
                     .filterNot { losslessDownloadOnly && it == DownloadSource.JIOSAAVN }
             val overridden = songPrefs.overrideSource
                 ?.let(::downloadSourceForAudioSource)
                 ?.takeIf { it != DownloadSource.YOUTUBE_MUSIC && it != DownloadSource.AUTO }
-                // An explicit per-song override is honoured even in lossless-only
-                // mode, but only when the override is itself a lossless source.
+                // An explicit per-song override is honoured even in
+                // lossless-download-only mode, but only when the override is
+                // itself a lossless source.
                 ?.takeIf { !losslessDownloadOnly || it != DownloadSource.JIOSAAVN }
             return if (overridden != null && overridden !in chainSources) {
                 listOf(overridden) + chainSources

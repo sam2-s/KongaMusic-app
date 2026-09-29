@@ -208,7 +208,7 @@ internal fun PlaybackSourceSections(
     val (losslessOnlyMode, onLosslessOnlyModeChange) =
         rememberPreference(LosslessOnlyModeKey, false)
     val (losslessDownloadOnly, onLosslessDownloadOnlyChange) =
-        rememberPreference(LosslessDownloadOnlyKey, true)
+        rememberPreference(LosslessDownloadOnlyKey, false)
     val (innerTubeCookie, _) = rememberPreference(InnerTubeCookieKey, defaultValue = "")
     val (poTokenGvs, _) = rememberPreference(PoTokenGvsKey, defaultValue = "")
     val (poTokenPlayer, _) = rememberPreference(PoTokenPlayerKey, defaultValue = "")

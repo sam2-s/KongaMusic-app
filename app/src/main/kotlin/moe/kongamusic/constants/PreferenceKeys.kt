@@ -471,11 +471,17 @@ val LosslessOnlyModeKey = booleanPreferencesKey("losslessOnlyMode")
 
 /**
  * Downloads: only ever save lossless audio. Qobuz / Tidal / Apple Music /
- * Deezer are tried in order (Qobuz first) and the download fails with an
- * actionable error if none of them has the track, rather than quietly writing a
- * lossy file. This is separate from [LosslessOnlyModeKey] on purpose: downloads
- * and streaming want opposite trade-offs, and coupling them meant enabling one
- * silently disabled the other.
+ * Deezer are tried in order (Qobuz first) and JioSaavn is skipped, so a saved
+ * file is never silently lossy. When the track is on none of them, the
+ * download fails with an actionable error instead of falling back to YouTube.
+ *
+ * Off by default: losing a download outright is worse than getting an Opus or
+ * AAC file, and YouTube is a perfectly good lossy source. Turn it on to
+ * guarantee lossless at the cost of failed downloads.
+ *
+ * Separate from [LosslessOnlyModeKey] on purpose — streaming and downloads
+ * want opposite trade-offs, and sharing one key meant enabling either turned
+ * on both.
  */
 val LosslessDownloadOnlyKey = booleanPreferencesKey("losslessDownloadOnly")
 
