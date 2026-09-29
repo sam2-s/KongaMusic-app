@@ -85,6 +85,7 @@ import moe.kongamusic.utils.StreamClientUtils
 import moe.kongamusic.utils.YTPlayerUtils
 import moe.kongamusic.utils.dataStore
 import moe.kongamusic.utils.enumPreference
+import moe.kongamusic.utils.get
 import moe.kongamusic.utils.preference
 import moe.kongamusic.utils.isLowDataModeActive
 import moe.kongamusic.utils.retryWithoutPlaybackLoginContext
@@ -158,7 +159,7 @@ class DownloadUtil
          * will fail with an IOException instead of silently saving a lossy file.
          */
         private val losslessOnlyMode: Boolean
-            get() = appContext.dataStore.get(LosslessOnlyModeKey, false)
+            get() = appContext.dataStore.get(LosslessOnlyModeKey, true)
         private val downloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val songUrlCache = ConcurrentHashMap<String, AuthScopedCacheValue>()
 
@@ -255,18 +256,20 @@ class DownloadUtil
             val directQobuzBackupVideoId: String?,
         )
 
+        /**
+         * Read through the snapshot-backed `dataStore[key]` extension rather than
+         * `dataStore.data.first()`. This runs from `getDownload()`, whose Flow is
+         * collected by `collectAsStateWithLifecycle` once per visible list row, so
+         * the old `runBlocking` parked a UI thread and pulled the whole
+         * `Preferences` object on every download progress tick — per row.
+         */
         private fun readSongSourcePreferences(mediaId: String): SongSourcePreferences =
-            runCatching {
-                runBlocking(Dispatchers.IO) {
-                    val prefs = appContext.dataStore.data.first()
-                    SongSourcePreferences(
-                        overrideSource = SongSourceOverride.get(prefs[SongSourceOverrideKey], mediaId),
-                        directQobuzTrackId = SongSourceQobuzTrackId.get(prefs[SongSourceQobuzTrackIdKey], mediaId),
-                        directQobuzBackupVideoId =
-                            SongSourceQobuzBackupVideoId.get(prefs[SongSourceQobuzBackupVideoIdKey], mediaId),
-                    )
-                }
-            }.getOrDefault(SongSourcePreferences(null, null, null))
+            SongSourcePreferences(
+                overrideSource = SongSourceOverride.get(appContext.dataStore[SongSourceOverrideKey], mediaId),
+                directQobuzTrackId = SongSourceQobuzTrackId.get(appContext.dataStore[SongSourceQobuzTrackIdKey], mediaId),
+                directQobuzBackupVideoId =
+                    SongSourceQobuzBackupVideoId.get(appContext.dataStore[SongSourceQobuzBackupVideoIdKey], mediaId),
+            )
 
         private fun downloadSourceForAudioSource(source: AudioSourceType): DownloadSource? =
             when (source) {
@@ -280,9 +283,17 @@ class DownloadUtil
                 downloadSourceOrder
                     .takeWhile { it != DownloadSource.YOUTUBE_MUSIC }
                     .filter { it != DownloadSource.AUTO }
+                    // JioSaavn is 320/160/96 kbps AAC, so it can never satisfy
+                    // lossless-only mode. Dropped here so a download either comes
+                    // from a real lossless source or fails, instead of silently
+                    // saving a lossy file.
+                    .filterNot { losslessOnlyMode && it == DownloadSource.JIOSAAVN }
             val overridden = songPrefs.overrideSource
                 ?.let(::downloadSourceForAudioSource)
                 ?.takeIf { it != DownloadSource.YOUTUBE_MUSIC && it != DownloadSource.AUTO }
+                // An explicit per-song override is honoured even in lossless-only
+                // mode, but only when the override is itself a lossless source.
+                ?.takeIf { !losslessOnlyMode || it != DownloadSource.JIOSAAVN }
             return if (overridden != null && overridden !in chainSources) {
                 listOf(overridden) + chainSources
             } else {
@@ -474,8 +485,7 @@ class DownloadUtil
                         mediaId,
                     )
                     throw IOException(
-                        "Lossless-only mode is enabled and no lossless source is available for this song. " +
-                            "Disable \"Lossless only mode\" in Settings → Player & Audio to fall back to YouTube.",
+                        appContext.getString(moe.kongamusic.R.string.lossless_only_mode_playback_error),
                     )
                 }
 
@@ -645,14 +655,20 @@ class DownloadUtil
         }
 
         fun getDownload(songId: String): Flow<Download?> =
-            downloads.map { map ->
-                currentSourceDownloadIds(songId).firstNotNullOfOrNull { map[it] }
-                    ?: DownloadSourceConfig
-                        .songIdToDownloadIds(songId)
-                        .firstNotNullOfOrNull { id ->
-                            map[id]?.takeIf { it.state == Download.STATE_COMPLETED }
-                        }
-            }
+            downloads
+                .map { map ->
+                    currentSourceDownloadIds(songId).firstNotNullOfOrNull { map[it] }
+                        ?: DownloadSourceConfig
+                            .songIdToDownloadIds(songId)
+                            .firstNotNullOfOrNull { id ->
+                                map[id]?.takeIf { it.state == Download.STATE_COMPLETED }
+                            }
+                }
+                // `downloads` is republished on every progress tick of every
+                // download. Without this, each visible row re-ran the whole lookup
+                // (and its preference reads) even when that row's own download
+                // had not changed.
+                .distinctUntilChanged()
 
         suspend fun prewarmSongForDownload(mediaId: String): String? {
             if (PoolAccountManager.isEnabled) {
@@ -1235,8 +1251,13 @@ class DownloadUtil
             }
         }
 
+        /**
+         * Low Data Mode no longer disables the lossless sources (see
+         * `low_data_mode_description`); it only caps the *YouTube* tier, which
+         * is the only lossy tier left in the download fallback.
+         */
         private fun resolveDownloadAudioQuality(lowDataModeActive: Boolean): AudioQuality =
-            audioQuality
+            if (lowDataModeActive) AudioQuality.LOW else audioQuality
 
         private fun buildSongUrlCacheKey(
             mediaId: String,

@@ -670,10 +670,10 @@
     <string name="audio_quality_high">High</string>
     <string name="audio_quality_low">Low</string>
     <string name="lossless_only_mode_title">Lossless only mode</string>
-    <string name="lossless_only_mode_description">Never fall back to YouTube. Songs not available on Tidal, Qobuz, Apple Music, Deezer or Telegram will fail to play or download instead of streaming a lossy YouTube copy. YouTube does not offer a lossless tier.</string>
-    <string name="lossless_only_mode_playback_error">This song is not available on any lossless source. Disable \&quot;Lossless only mode\&quot; to fall back to YouTube.</string>
+    <string name="lossless_only_mode_description">Never fall back to YouTube, and never use JioSaavn. Songs not available on Qobuz, Tidal, Apple Music or Deezer will fail to play or download instead of streaming a lossy copy. Neither YouTube nor JioSaavn offers a lossless tier.</string>
+    <string name="lossless_only_mode_playback_error">This song is not available on any lossless source. Disable \"Lossless only mode\" in Settings → Player &amp; Audio to fall back to YouTube.</string>
     <string name="low_data_mode_title">Low Data Mode</string>
-    <string name="low_data_mode_description">On metered networks, drop to low quality and disable the lossless sources.</string>
+    <string name="low_data_mode_description">On metered networks, drop the YouTube fallback to low quality. Lossless sources stay enabled.</string>
     <string name="queue">Queue</string>
     <string name="persistent_queue">Persistent queue</string>
     <string name="persistent_queue_desc">Restore your last queue when the app starts</string>

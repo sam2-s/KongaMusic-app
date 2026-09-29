@@ -499,7 +499,7 @@ class MusicService :
      * a lossy YouTube stream.
      */
     private val losslessOnlyMode: Boolean
-        get() = dataStore.get(LosslessOnlyModeKey, false)
+        get() = dataStore.get(LosslessOnlyModeKey, true)
     private val preferredStreamClient by enumPreference(
         this,
         PlayerStreamClientKey,
@@ -674,6 +674,18 @@ class MusicService :
     private val audioNormalizationFactorCache = ConcurrentHashMap<String, Float>()
 
     private val tidalActiveMediaIds = ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * The set is only ever *read* for `currentMediaId` (normalisation), but it is
+     * written for every track a lossless source resolves, so it would otherwise
+     * grow for the lifetime of the service. Cap it: once it exceeds a few
+     * hundred ids the only ids that can still matter are recent ones, so drop
+     * the whole set rather than tracking insertion order.
+     */
+    private fun markLosslessActive(mediaId: String) {
+        tidalActiveMediaIds.add(mediaId)
+        if (tidalActiveMediaIds.size > TIDAL_ACTIVE_IDS_MAX) tidalActiveMediaIds.clear()
+    }
     private var audioNormalizationEnabled = true
     var playerVolume = MutableStateFlow(1f)
     private val audioFocusVolumeFactor = MutableStateFlow(1f)
@@ -7917,17 +7929,15 @@ class MusicService :
                     Timber.tag(TAG).d("Prefetching stream URL for next media item: %s", mediaId)
 
                     val lowData = isLowDataModeActive()
-                    run {
-                        val dataSpec = DataSpec.Builder()
-                            .setUri("placeholder:$mediaId".toUri())
-                            .setKey(mediaId)
-                            .build()
-                        val resolved = resolveMultiSourceDataSpec(dataSpec, mediaId, lowData, isPrefetch = true)
-                        if (resolved != null) {
+                    val dataSpec = DataSpec.Builder()
+                        .setUri("placeholder:$mediaId".toUri())
+                        .setKey(mediaId)
+                        .build()
+                    val resolved = resolveMultiSourceDataSpec(dataSpec, mediaId, lowData, isPrefetch = true)
+                    if (resolved != null) {
 
-                            Timber.tag(TAG).d("Prefetch: lossless stream resolved for %s", mediaId)
-                            return@runCatching
-                        }
+                        Timber.tag(TAG).d("Prefetch: lossless stream resolved for %s", mediaId)
+                        return@runCatching
                     }
 
                     // Lossless-only mode: do not prefetch the YouTube fallback.
@@ -9429,23 +9439,21 @@ class MusicService :
                     directStreamCache.remove(cacheKey, cached)
                     continue
                 }
-                run {
-                    Timber.tag("MusicService").d(
-                        "Multi-source cache HIT for %s: %s [%s]",
-                        mediaId,
-                        source.name,
-                        cached.stream.label,
-                    )
-                    tidalActiveMediaIds.add(mediaId)
-                    audioNormalizationFactorCache[mediaId] = 1f
-                    recordResolvedSource(mediaId, source)
-                    cached.stream.contentLength?.takeIf { it > 0L }?.let { contentLengthCache[cacheKey] = it }
-                    return dataSpec
-                        .buildUpon()
-                        .setUri(cached.stream.uri.toUri())
-                        .setKey(cacheKey)
-                        .build()
-                }
+                Timber.tag("MusicService").d(
+                    "Multi-source cache HIT for %s: %s [%s]",
+                    mediaId,
+                    source.name,
+                    cached.stream.label,
+                )
+                markLosslessActive(mediaId)
+                audioNormalizationFactorCache[mediaId] = 1f
+                recordResolvedSource(mediaId, source)
+                cached.stream.contentLength?.takeIf { it > 0L }?.let { contentLengthCache[cacheKey] = it }
+                return dataSpec
+                    .buildUpon()
+                    .setUri(cached.stream.uri.toUri())
+                    .setKey(cacheKey)
+                    .build()
             }
         }
 
@@ -9487,6 +9495,25 @@ class MusicService :
             return null
         }
 
+        // Lossless-only mode must never be satisfied by a lossy source. JioSaavn
+        // tops out at 320 kbps AAC, so it is dropped from the chain here rather
+        // than being left to resolve a lossy stream ahead of the gate further
+        // down in resolveDataSpec. AMAZON has no resolver and YOUTUBE maps to
+        // null in the chain loop, so neither can leak.
+        val effectiveChain =
+            if (losslessOnlyMode) chain.filterNot { it == AudioSourceType.JIOSAAVN } else chain
+        if (losslessOnlyMode && effectiveChain.size != chain.size) {
+            Timber.tag("MusicService").i(
+                "Lossless-only mode: dropped lossy source(s) %s from the chain for %s",
+                chain.filter { it == AudioSourceType.JIOSAAVN }.joinToString(",") { it.name },
+                mediaId,
+            )
+        }
+        if (effectiveChain.isEmpty()) {
+            Timber.tag("MusicService").d("Multi-source skip: no lossless sources to try for %s", mediaId)
+            return null
+        }
+
         if (lowDataModeActive && !isDirectPick) {
             Timber.tag("MusicService").i("Low-data mode active; lossless sources still preferred for %s", mediaId)
         }
@@ -9502,7 +9529,7 @@ class MusicService :
         var best: DirectStream? = null
         var bestSource: AudioSourceType? = null
         var bestScore = 0.0
-        for (source in chain) {
+        for (source in effectiveChain) {
             Timber.tag("MusicService").d("Trying source: %s for \"%s\"", source.name, query.title)
             val stream: DirectStream? =
                 when (source) {
@@ -10185,7 +10212,7 @@ class MusicService :
         Timber.tag("MusicService").i("Using %s stream for %s: %s", stream.source, mediaId, stream.label)
         val cacheKey = sourceCacheKey(stream.source, mediaId)
         stream.contentLength?.takeIf { it > 0L }?.let { contentLengthCache[cacheKey] = it }
-        tidalActiveMediaIds.add(mediaId)
+        markLosslessActive(mediaId)
         audioNormalizationFactorCache[mediaId] = 1f
 
         persistDirectStreamFormat(mediaId, stream)
@@ -10425,10 +10452,7 @@ class MusicService :
                 mediaId,
             )
             scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
-            throw IOException(
-                "Lossless-only mode is enabled and no lossless source is available for this song. " +
-                    "Disable \"Lossless only mode\" in Settings → Player & Audio to fall back to YouTube.",
-            )
+            throw IOException(this@MusicService.getString(R.string.lossless_only_mode_playback_error))
         }
 
         if (preferredStreamClient == PlayerStreamClient.KONGAMUSIC_EXTRACTOR) {
@@ -11832,6 +11856,8 @@ class MusicService :
     }
 
     companion object {
+        private const val TIDAL_ACTIVE_IDS_MAX = 256
+
         internal fun shouldStopServiceOnTaskRemoved(
             stopMusicOnTaskClearEnabled: Boolean,
             isHostSessionActive: Boolean,
