@@ -498,8 +498,13 @@ class MusicService :
      * via Tidal/Qobuz/Apple/Deezer/Telegram, playback will fail instead of serving
      * a lossy YouTube stream.
      */
+    /**
+     * When true, streaming never falls back to YouTube. Defaults to false, so
+     * playback always resolves through the lossless chain first and then
+     * YouTube — a track with no lossless source still plays.
+     */
     private val losslessOnlyMode: Boolean
-        get() = dataStore.get(LosslessOnlyModeKey, true)
+        get() = dataStore.get(LosslessOnlyModeKey, false)
     private val preferredStreamClient by enumPreference(
         this,
         PlayerStreamClientKey,
@@ -10444,11 +10449,13 @@ class MusicService :
             return sourceDataSpec
         }
 
-        // Lossless-only mode: never fall back to YouTube (the extractor is also YouTube-based).
-        // If we reached this point, no lossless source produced a stream — fail playback instead.
+        // Streaming lossless-only is opt-in and off by default. Upstream
+        // 4nx3b/ArchiveTune has no such gate at all: it always falls through to
+        // YouTube, which is what keeps playback working. Only refuse the
+        // fallback when the user actually asked for it.
         if (losslessOnlyMode) {
             Timber.tag("MusicService").w(
-                "Lossless-only mode active: refusing YouTube fallback for %s (no lossless source available)",
+                "Lossless-only streaming enabled: refusing YouTube fallback for %s (no lossless source available)",
                 mediaId,
             )
             scope.launch(Dispatchers.IO) { recoverSong(mediaId) }

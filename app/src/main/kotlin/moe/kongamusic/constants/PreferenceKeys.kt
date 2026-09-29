@@ -458,15 +458,26 @@ val NetworkMeteredKey = booleanPreferencesKey("networkMetered")
 val LowDataModeKey = NetworkMeteredKey
 
 /**
- * When enabled, the app will never fall back to YouTube for streaming or
- * downloading — only lossless sources (Tidal / Qobuz / Apple Music / Deezer /
- * Telegram) are used. If a song is not available on any lossless source,
- * playback/download will fail instead of silently serving a lossy stream.
+ * Streaming: never fall back to YouTube — only lossless sources
+ * (Qobuz / Tidal / Apple Music / Deezer) are used, and playback fails rather
+ * than silently serving a lossy stream.
  *
- * YouTube itself does not provide a lossless tier, so this is the only way
- * to guarantee truly lossless audio.
+ * Defaults to **false**. Almost nobody has a lossless source signed in, and the
+ * enabled gates are Tidal/Apple only, so defaulting this on made every track
+ * fail to play for anyone without a subscription. YouTube remains the streaming
+ * fallback; use [LosslessDownloadOnlyKey] to keep saved files lossless.
  */
 val LosslessOnlyModeKey = booleanPreferencesKey("losslessOnlyMode")
+
+/**
+ * Downloads: only ever save lossless audio. Qobuz / Tidal / Apple Music /
+ * Deezer are tried in order (Qobuz first) and the download fails with an
+ * actionable error if none of them has the track, rather than quietly writing a
+ * lossy file. This is separate from [LosslessOnlyModeKey] on purpose: downloads
+ * and streaming want opposite trade-offs, and coupling them meant enabling one
+ * silently disabled the other.
+ */
+val LosslessDownloadOnlyKey = booleanPreferencesKey("losslessDownloadOnly")
 
 enum class AudioQuality {
     AUTO,
@@ -985,6 +996,14 @@ val NavigationBarFrostedBlurKey = booleanPreferencesKey("navigationBarFrostedBlu
 
 val NavigationBarTintFrostedBlurKey = booleanPreferencesKey("navigationBarTintFrostedBlur")
 val HideNavigationBarLabelsKey = booleanPreferencesKey("hideNavigationBarLabels")
+
+/**
+ * Collapse the navigation bar while scrolling, and hand the freed space to the
+ * collapsed mini player so it drifts down by the bar's own footprint instead of
+ * being covered by it. On by default; the scroll algorithm is BitChord's
+ * (github.com/kushagrasinghx/bitchord, GPL-3.0).
+ */
+val NavBarHideOnScrollKey = booleanPreferencesKey("navBarHideOnScroll")
 
 val NavigationBarWidthKey = floatPreferencesKey("navigationBarWidth")
 const val NAVIGATION_BAR_WIDTH_DEFAULT = 0.8f

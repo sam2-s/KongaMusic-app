@@ -584,6 +584,8 @@
     <string name="navigation_bar_frosted_blur">Frosted navigation bar</string>
     <string name="navigation_bar_frosted_blur_desc">Apply a frosted blur behind the navigation bar</string>
     <string name="navigation_bar_frosted_blur_unsupported">Frosted navigation bar is not supported on Android versions below 12</string>
+    <string name="nav_bar_hide_on_scroll">Minimize on scroll</string>
+    <string name="nav_bar_hide_on_scroll_desc">Scrolling down minimizes the navigation bar, and the mini player takes over the space it frees instead of being covered by it. Scrolling up brings the bar back.</string>
     <string name="hide_navigation_bar_labels">Hide labels in navigation bar</string>
     <string name="hide_navigation_bar_labels_desc">Show only icons in the bottom navigation bar</string>
     <string name="frosted_blur">Frosted blur</string>
@@ -669,9 +671,12 @@
     <string name="audio_quality_auto">Auto</string>
     <string name="audio_quality_high">High</string>
     <string name="audio_quality_low">Low</string>
-    <string name="lossless_only_mode_title">Lossless only mode</string>
-    <string name="lossless_only_mode_description">Never fall back to YouTube, and never use JioSaavn. Songs not available on Qobuz, Tidal, Apple Music or Deezer will fail to play or download instead of streaming a lossy copy. Neither YouTube nor JioSaavn offers a lossless tier.</string>
-    <string name="lossless_only_mode_playback_error">This song is not available on any lossless source. Disable \"Lossless only mode\" in Settings → Player &amp; Audio to fall back to YouTube.</string>
+    <string name="lossless_only_mode_title">Lossless streaming only</string>
+    <string name="lossless_only_mode_description">Off by default, because it means a song with no lossless source will not play at all. When on, streaming never falls back to YouTube. Downloads are controlled separately by \"Lossless downloads only\".</string>
+    <string name="lossless_only_mode_playback_error">This song is not available on any lossless source, and Lossless streaming only is on. Turn it off in Settings → Player &amp; Audio to play from YouTube.</string>
+    <string name="lossless_download_only_title">Lossless downloads only</string>
+    <string name="lossless_download_only_description">On by default. Downloads are taken from Qobuz, Tidal, Apple Music or Deezer only, so a saved file is never silently lossy. If none of them has a track, the download fails instead of falling back to YouTube. JioSaavn is never used for downloads.</string>
+    <string name="lossless_download_unavailable_error">No lossless source has this track. Qobuz, Tidal, Apple Music and Deezer were all tried. Sign in to one of them in Settings, or turn off \"Lossless downloads only\" to download from YouTube.</string>
     <string name="low_data_mode_title">Low Data Mode</string>
     <string name="low_data_mode_description">On metered networks, drop the YouTube fallback to low quality. Lossless sources stay enabled.</string>
     <string name="queue">Queue</string>

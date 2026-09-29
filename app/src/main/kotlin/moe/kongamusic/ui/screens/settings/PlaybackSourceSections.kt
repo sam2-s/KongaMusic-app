@@ -86,6 +86,7 @@ import moe.kongamusic.constants.InnerTubeCookieKey
 import moe.kongamusic.constants.PoTokenGvsKey
 import moe.kongamusic.constants.PoTokenPlayerKey
 import moe.kongamusic.constants.AudioQualityKey
+import moe.kongamusic.constants.LosslessDownloadOnlyKey
 import moe.kongamusic.constants.LosslessOnlyModeKey
 import moe.kongamusic.constants.DefaultMetadataSourceKey
 import moe.kongamusic.constants.DefaultSearchSourceKey
@@ -205,7 +206,9 @@ internal fun PlaybackSourceSections(
     val (autoChoosePlaybackClient, onAutoChoosePlaybackClientChange) =
         rememberPreference(AutoChoosePlaybackClientKey, true)
     val (losslessOnlyMode, onLosslessOnlyModeChange) =
-        rememberPreference(LosslessOnlyModeKey, true)
+        rememberPreference(LosslessOnlyModeKey, false)
+    val (losslessDownloadOnly, onLosslessDownloadOnlyChange) =
+        rememberPreference(LosslessDownloadOnlyKey, true)
     val (innerTubeCookie, _) = rememberPreference(InnerTubeCookieKey, defaultValue = "")
     val (poTokenGvs, _) = rememberPreference(PoTokenGvsKey, defaultValue = "")
     val (poTokenPlayer, _) = rememberPreference(PoTokenPlayerKey, defaultValue = "")
@@ -370,6 +373,16 @@ internal fun PlaybackSourceSections(
                         AudioQuality.LOW -> stringResource(R.string.audio_quality_low)
                     }
                 },
+            )
+        }
+        item {
+            SwitchPreference(
+                modifier = positions.modifierFor("lossless_download_only"),
+                title = { Text(stringResource(R.string.lossless_download_only_title)) },
+                description = stringResource(R.string.lossless_download_only_description),
+                icon = { Icon(painterResource(R.drawable.ic_mqa), null) },
+                checked = losslessDownloadOnly,
+                onCheckedChange = onLosslessDownloadOnlyChange,
             )
         }
         item {

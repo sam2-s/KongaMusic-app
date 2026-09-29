@@ -44,7 +44,7 @@ import moe.kongamusic.constants.AudioQualityKey
 import moe.kongamusic.constants.DownloadSource
 import moe.kongamusic.constants.DownloadSourceConfig
 import moe.kongamusic.constants.DownloadSourceKey
-import moe.kongamusic.constants.LosslessOnlyModeKey
+import moe.kongamusic.constants.LosslessDownloadOnlyKey
 import moe.kongamusic.constants.DownloadSourceOrderKey
 import moe.kongamusic.constants.DeezerAudioQuality
 import moe.kongamusic.constants.DeezerAudioQualityKey
@@ -154,12 +154,15 @@ class DownloadUtil
         private val deezerAudioQuality by enumPreference(context, DeezerAudioQualityKey, DeezerAudioQuality.FLAC)
         private val appleMusicQuality by enumPreference(context, AppleMusicQualityKey, AppleMusicQuality.HI_RES_LOSSLESS)
         /**
-         * When true, downloads never fall back to YouTube. If a song isn't available
-         * on any lossless source (Tidal/Qobuz/Apple/Deezer/Telegram), the download
-         * will fail with an IOException instead of silently saving a lossy file.
+         * When true (the default) downloads never fall back to YouTube: only
+         * Qobuz / Tidal / Apple Music / Deezer may produce the file, and a track
+         * none of them has fails with an actionable error instead of silently
+         * saving a lossy copy. Deliberately a different preference from the
+         * streaming-side [LosslessOnlyModeKey] — the two want opposite
+         * trade-offs, and sharing one key meant turning either on turned both on.
          */
-        private val losslessOnlyMode: Boolean
-            get() = appContext.dataStore.get(LosslessOnlyModeKey, true)
+        private val losslessDownloadOnly: Boolean
+            get() = appContext.dataStore.get(LosslessDownloadOnlyKey, true)
         private val downloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val songUrlCache = ConcurrentHashMap<String, AuthScopedCacheValue>()
 
@@ -294,13 +297,13 @@ class DownloadUtil
                     // lossless-only mode. Dropped here so a download either comes
                     // from a real lossless source or fails, instead of silently
                     // saving a lossy file.
-                    .filterNot { losslessOnlyMode && it == DownloadSource.JIOSAAVN }
+                    .filterNot { losslessDownloadOnly && it == DownloadSource.JIOSAAVN }
             val overridden = songPrefs.overrideSource
                 ?.let(::downloadSourceForAudioSource)
                 ?.takeIf { it != DownloadSource.YOUTUBE_MUSIC && it != DownloadSource.AUTO }
                 // An explicit per-song override is honoured even in lossless-only
                 // mode, but only when the override is itself a lossless source.
-                ?.takeIf { !losslessOnlyMode || it != DownloadSource.JIOSAAVN }
+                ?.takeIf { !losslessDownloadOnly || it != DownloadSource.JIOSAAVN }
             return if (overridden != null && overridden !in chainSources) {
                 listOf(overridden) + chainSources
             } else {
@@ -485,14 +488,21 @@ class DownloadUtil
                     resolvePreferredDownloadDataSpec(dataSpec, mediaId, songSourcePrefs)?.let { return@Factory it }
                 }
 
-                // Lossless-only mode: never fall back to YouTube for downloads.
-                if (losslessOnlyMode) {
+                // Lossless-download-only (on by default): never fall back to YouTube
+                // for downloads. resolvePreferredDownloadDataSpec above already
+                // walked the lossless chain and missed, so the track is genuinely
+                // unavailable from Qobuz / Tidal / Apple Music / Deezer.
+                if (losslessDownloadOnly) {
                     Timber.tag("DownloadUtil").w(
-                        "Lossless-only mode active: refusing YouTube download fallback for %s (no lossless source available)",
+                        "Lossless download only: no lossless source has %s; tried %s. " +
+                            "Qobuz needs a signed-in account, Tidal/Apple a subscription.",
                         mediaId,
+                        downloadSourceChain(songSourcePrefs).joinToString(",") { it.name },
                     )
                     throw IOException(
-                        appContext.getString(moe.kongamusic.R.string.lossless_only_mode_playback_error),
+                        appContext.getString(
+                            moe.kongamusic.R.string.lossless_download_unavailable_error,
+                        ),
                     )
                 }
 
@@ -771,10 +781,11 @@ class DownloadUtil
                 return null
             }
 
-            // Lossless-only mode: do not prewarm the YouTube fallback stream.
-            if (losslessOnlyMode) {
+            // Lossless-download-only: no point prewarming the YouTube fallback,
+            // it will never be used.
+            if (losslessDownloadOnly) {
                 Timber.tag("DownloadUtil").d(
-                    "prewarmSongForDownload: lossless-only mode active, skipping YouTube fallback for %s",
+                    "prewarmSongForDownload: lossless-download-only, skipping YouTube fallback for %s",
                     mediaId,
                 )
                 return null
