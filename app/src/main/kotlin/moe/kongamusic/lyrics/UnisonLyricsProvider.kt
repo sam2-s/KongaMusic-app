@@ -10,7 +10,7 @@ package moe.kongamusic.lyrics
 import android.content.Context
 import android.util.Log
 import moe.kongamusic.constants.EnableUnisonLyricsKey
-import moe.kongamusic.unison.Unison
+import moe.rukamori.archivetune.unison.Unison
 import moe.kongamusic.utils.GlobalLog
 import moe.kongamusic.utils.dataStore
 import moe.kongamusic.utils.get

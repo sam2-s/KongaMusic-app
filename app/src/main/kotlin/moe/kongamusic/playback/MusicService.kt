@@ -329,9 +329,9 @@ import moe.kongamusic.together.toTogetherRoomState
 import moe.kongamusic.together.toTogetherTrack
 import moe.kongamusic.ui.screens.settings.DiscordPresenceManager
 import moe.kongamusic.ui.screens.settings.ListenBrainzManager
-import moe.kongamusic.moriextractor.KongamusicExtractorException
-import moe.kongamusic.moriextractor.InMemoryBearerTokenRepository
-import moe.kongamusic.moriextractor.StreamingExtractionManager
+import moe.rukamori.archivetune.moriextractor.ArchiveTuneExtractorException
+import moe.rukamori.archivetune.moriextractor.InMemoryBearerTokenRepository
+import moe.rukamori.archivetune.moriextractor.StreamingExtractionManager
 import moe.kongamusic.utils.AuthScopedCacheValue
 import moe.kongamusic.utils.CoilBitmapLoader
 import moe.kongamusic.utils.NetworkConnectivityObserver
@@ -10674,7 +10674,7 @@ class MusicService :
                         )
                     }
 
-                    throwable is KongamusicExtractorException -> {
+                    throwable is ArchiveTuneExtractorException -> {
                         throw PlaybackException(
                             getString(R.string.error_no_stream),
                             throwable,

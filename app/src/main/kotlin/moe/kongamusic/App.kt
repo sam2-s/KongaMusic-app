@@ -39,12 +39,12 @@ import moe.kongamusic.deezer.DeezerAudioProvider
 import moe.kongamusic.extensions.*
 import moe.kongamusic.innertube.YouTube
 import moe.kongamusic.innertube.models.YouTubeLocale
-import moe.kongamusic.kugou.KuGou
+import moe.rukamori.archivetune.kugou.KuGou
 import moe.kongamusic.lastfm.LastFM
 import moe.kongamusic.lyrics.JapaneseLanguagePackManager
 import moe.kongamusic.canvas.AppleMusicProvider
 import moe.kongamusic.canvas.SpotifyCanvasProvider
-import moe.kongamusic.morideobfuscator.ytdlp.YtDlpJavaScriptRuntime
+import moe.rukamori.archivetune.morideobfuscator.ytdlp.YtDlpJavaScriptRuntime
 import moe.kongamusic.scrobbling.LastFmServiceConfig
 import moe.kongamusic.spotify.Spotify
 import moe.kongamusic.spotify.SpotifyLibraryRepository

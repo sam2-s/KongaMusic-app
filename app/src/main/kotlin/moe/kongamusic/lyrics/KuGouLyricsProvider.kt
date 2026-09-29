@@ -9,7 +9,7 @@ package moe.kongamusic.lyrics
 
 import android.content.Context
 import moe.kongamusic.constants.EnableKugouKey
-import moe.kongamusic.kugou.KuGou
+import moe.rukamori.archivetune.kugou.KuGou
 import moe.kongamusic.utils.dataStore
 import moe.kongamusic.utils.get
 

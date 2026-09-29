@@ -12,7 +12,7 @@ import android.util.Log
 import moe.kongamusic.constants.EnableYouLyPlusLyricsKey
 import moe.kongamusic.utils.GlobalLog
 import moe.kongamusic.utils.dataStore
-import moe.kongamusic.youlyplus.YouLyPlus
+import moe.rukamori.archivetune.youlyplus.YouLyPlus
 import moe.kongamusic.utils.get
 
 object YouLyPlusLyricsProvider : LyricsProvider {

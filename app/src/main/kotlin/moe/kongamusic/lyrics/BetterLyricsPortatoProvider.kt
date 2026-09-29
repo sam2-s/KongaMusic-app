@@ -8,7 +8,7 @@
 package moe.kongamusic.lyrics
 
 import android.content.Context
-import moe.kongamusic.betterlyrics.BetterLyrics
+import moe.koiverse.rukamori.betterlyrics.BetterLyrics
 import moe.kongamusic.constants.EnableBetterLyricsPortatoKey
 import moe.kongamusic.utils.dataStore
 import moe.kongamusic.utils.get

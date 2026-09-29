@@ -9,7 +9,7 @@ package moe.kongamusic.lyrics
 
 import android.content.Context
 import moe.kongamusic.constants.EnableLrcLibKey
-import moe.kongamusic.lrclib.LrcLib
+import moe.rukamori.archivetune.lrclib.LrcLib
 import moe.kongamusic.utils.dataStore
 import moe.kongamusic.utils.get
 
