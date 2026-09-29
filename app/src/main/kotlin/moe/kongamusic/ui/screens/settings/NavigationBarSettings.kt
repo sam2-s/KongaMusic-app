@@ -66,6 +66,7 @@ import moe.kongamusic.constants.NAVIGATION_BAR_OPACITY_DEFAULT
 import moe.kongamusic.constants.NAVIGATION_BAR_TRANSPARENCY_DEFAULT
 import moe.kongamusic.constants.NAVIGATION_BAR_WIDTH_DEFAULT
 import moe.kongamusic.constants.NavigationBarCornerRadiusKey
+import moe.kongamusic.constants.NavBarHideOnScrollKey
 import moe.kongamusic.constants.NavigationBarFrostedBlurKey
 import moe.kongamusic.constants.LiquidGlassEnabledKey
 import moe.kongamusic.constants.LiquidGlassNavBarEnabledKey
@@ -112,9 +113,11 @@ fun NavigationBarSettings(navController: NavController, scrollTo: String? = null
         rememberPreference(NavigationBarTintFrostedBlurKey, defaultValue = false)
 
     val (liquidGlassEnabled) =
-        rememberPreference(LiquidGlassEnabledKey, defaultValue = false)
+        rememberPreference(LiquidGlassEnabledKey, defaultValue = true)
     val (liquidGlassNavBarEnabled, onLiquidGlassNavBarEnabledChange) =
         rememberPreference(LiquidGlassNavBarEnabledKey, defaultValue = false)
+    val (navBarHideOnScroll, onNavBarHideOnScrollChange) =
+        rememberPreference(NavBarHideOnScrollKey, defaultValue = true)
     val isGlassNavStyle =
         navigationBarStyle == NavigationBarStyle.LIQUID_GLASS ||
             navigationBarStyle == NavigationBarStyle.NUVIO_GLASS ||
@@ -297,6 +300,16 @@ fun NavigationBarSettings(navController: NavController, scrollTo: String? = null
                     )
                 }
 
+                item {
+                    SwitchPreference(
+                        modifier = positions.modifierFor("nav_bar_hide_on_scroll"),
+                        title = { Text(stringResource(R.string.nav_bar_hide_on_scroll)) },
+                        description = stringResource(R.string.nav_bar_hide_on_scroll_desc),
+                        icon = { Icon(painterResource(R.drawable.nav_bar), null) },
+                        checked = navBarHideOnScroll,
+                        onCheckedChange = onNavBarHideOnScrollChange,
+                    )
+                }
                 item {
                     SwitchPreference(
                         modifier = positions.modifierFor("hide_navigation_bar_labels"),

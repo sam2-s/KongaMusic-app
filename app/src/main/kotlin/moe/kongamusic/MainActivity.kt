@@ -247,6 +247,7 @@ import moe.kongamusic.constants.PlayerBackgroundStyle
 import moe.kongamusic.constants.PlayerBackgroundStyleKey
 import moe.kongamusic.constants.PlayerDesignStyle
 import moe.kongamusic.constants.PlayerDesignStyleKey
+import moe.kongamusic.constants.NavBarHideOnScrollKey
 import moe.kongamusic.constants.NavigationBarFrostedBlurKey
 import moe.kongamusic.constants.NavigationBarTintFrostedBlurKey
 import moe.kongamusic.constants.NavigationBarStyle
@@ -798,7 +799,7 @@ class MainActivity : ComponentActivity() {
             // header's own haze stayed disabled.
             val liquidGlassEnabled by rememberPreference(
                 LiquidGlassEnabledKey,
-                defaultValue = false,
+                defaultValue = true,
             )
             val liquidGlassNavBarEnabled by rememberPreference(
                 LiquidGlassNavBarEnabledKey,
@@ -1229,31 +1230,50 @@ class MainActivity : ComponentActivity() {
                     // smoothly takes over the freed space; scrolling back up
                     // smoothly restores it. Reset whenever the destination
                     // changes so a freshly opened tab always starts with the
-                    // bar visible.
+                    // bar visible. Gated on NavBarHideOnScrollKey (default on).
+                    val navBarHideOnScroll by rememberPreference(NavBarHideOnScrollKey, true)
                     var isNavBarHiddenByScroll by remember { mutableStateOf(false) }
                     LaunchedEffect(navBackStackEntry?.destination?.route) {
                         isNavBarHiddenByScroll = false
                     }
                     val navBarScrollDensity = LocalDensity.current
                     val navBarHideScrollThresholdPx = with(navBarScrollDensity) { 14.dp.toPx() }
+                    // Collapse the nav bar on scroll. The algorithm is BitChord's
+                    // (github.com/kushagrasinghx/bitchord, GPL-3.0), which is a
+                    // refinement of the single-delta test this used to do: scroll is
+                    // accumulated across events, reversed direction resets the
+                    // accumulator so an about-face does not immediately un-collapse,
+                    // and the accumulator resets after each state change so one long
+                    // drag cannot re-fire it. The connection runs on onPreScroll so
+                    // it reacts to the unconsumed delta before the child scrolls.
                     val navBarScrollHideConnection =
                         remember(navBarHideScrollThresholdPx) {
                             object : NestedScrollConnection {
-                                override fun onPostScroll(
-                                    consumed: Offset,
+                                private var accumulatedScroll = 0f
+
+                                override fun onPreScroll(
                                     available: Offset,
                                     source: NestedScrollSource,
                                 ): Offset {
-                                    // Only real user gestures (drag or fling) drive the
-                                    // hide/show; programmatic scrolls (scroll-position
-                                    // restore on playlists, settings auto-scroll) must
+                                    // Only real user gestures (drag or fling) drive
+                                    // the collapse; programmatic scrolls (playlist
+                                    // position restore, settings auto-scroll) must
                                     // not touch the bar.
-                                    if (source == NestedScrollSource.UserInput) {
-                                        if (consumed.y < -navBarHideScrollThresholdPx) {
-                                            isNavBarHiddenByScroll = true
-                                        } else if (consumed.y > navBarHideScrollThresholdPx) {
-                                            isNavBarHiddenByScroll = false
-                                        }
+                                    if (source != NestedScrollSource.UserInput) return Offset.Zero
+                                    val scrollDelta = available.y
+                                    if ((accumulatedScroll > 0f && scrollDelta < 0f) ||
+                                        (accumulatedScroll < 0f && scrollDelta > 0f)
+                                    ) {
+                                        accumulatedScroll = 0f
+                                    }
+                                    accumulatedScroll += scrollDelta
+
+                                    if (accumulatedScroll <= -navBarHideScrollThresholdPx && !isNavBarHiddenByScroll) {
+                                        isNavBarHiddenByScroll = true
+                                        accumulatedScroll = 0f
+                                    } else if (accumulatedScroll >= navBarHideScrollThresholdPx && isNavBarHiddenByScroll) {
+                                        isNavBarHiddenByScroll = false
+                                        accumulatedScroll = 0f
                                     }
                                     return Offset.Zero
                                 }
@@ -2783,7 +2803,7 @@ class MainActivity : ComponentActivity() {
                                                 nuvioGlass = navigationBarStyle == NavigationBarStyle.NUVIO_GLASS,
                                                 nuvioJellyBar = nuvioJellyNavActive,
                                                 nuvioHazeState = if (nuvioJellyNavActive) navBarHazeState else null,
-                                                labelVisibility = if (nuvioJellyNavActive && navVisibleHeight > 0.dp) {
+                                                labelVisibility = if (nuvioJellyNavActive && navVisibleHeight > 0.dp && navBarHideOnScroll) {
                                                     if (isNavBarHiddenByScroll) 0f else 1f
                                                 } else 1f,
                                                 modifier =
