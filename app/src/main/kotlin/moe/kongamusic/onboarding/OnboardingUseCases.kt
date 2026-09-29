@@ -243,13 +243,6 @@ class BuildOnboardingUiStateUseCase
                         iconResId = R.drawable.telegram,
                         url = "https://t.me/ArchiveTuneGC",
                     ),
-                    OnboardingCommunityActionUiModel(
-                        id = "donate",
-                        titleResId = R.string.about_content_desc_donate,
-                        descriptionResId = R.string.onboarding_community_donate_desc,
-                        iconResId = R.drawable.coffee,
-                        url = "https://koiiverse.cloud/donate",
-                    ),
                 )
         }
     }

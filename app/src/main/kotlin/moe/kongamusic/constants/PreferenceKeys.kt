@@ -1445,8 +1445,6 @@ val OnboardingCompletedKey = booleanPreferencesKey("onboarding_completed")
 val WelcomeSeenKey = booleanPreferencesKey("welcome_seen")
 
 val OnboardingCurrentPageKey = intPreferencesKey("onboarding_current_page")
-val HasPressedStarKey = booleanPreferencesKey("has_pressed_star")
-val RemindAfterKey = intPreferencesKey("remind_after")
 
 val EnableUpdateNotificationKey = booleanPreferencesKey("enableUpdateNotification")
 val UpdateChannelKey = stringPreferencesKey("updateChannel")
