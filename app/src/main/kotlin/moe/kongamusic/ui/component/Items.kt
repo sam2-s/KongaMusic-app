@@ -97,6 +97,7 @@ import coil3.imageLoader
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
 import coil3.toBitmap
+import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -104,6 +105,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.runtime.derivedStateOf
 import moe.kongamusic.LocalDatabase
 import moe.kongamusic.LocalDownloadUtil
 import moe.kongamusic.LocalPlayerConnection
@@ -2171,9 +2173,20 @@ fun SwipeToSongBox(
                     },
                 ),
     ) {
-        if (offset.value != 0f) {
+        // Swipe direction and icon are stable for the whole gesture, so derive
+        // them from the sign of the offset rather than re-reading the offset
+        // itself. The remaining per-frame work is the reveal alpha, which is
+        // applied in a graphicsLayer below (draw phase) — reading offset.value
+        // in the composable body re-composed the whole list row on every drag
+        // delta, because that scope also holds the row's thumbnail and its
+        // preference/Room collectors.
+        val revealProgress = remember(offset, threshold) {
+            derivedStateOf { (offset.value / threshold).coerceIn(-1f, 1f) }
+        }
+        if (revealProgress.value != 0f) {
+            val isForward = revealProgress.value > 0
             val (iconRes, bg, tint, align) =
-                if (offset.value > 0) {
+                if (isForward) {
                     Quadruple(
                         R.drawable.playlist_play,
                         MaterialTheme.colorScheme.secondary,
@@ -2195,6 +2208,7 @@ fun SwipeToSongBox(
                         .fillMaxWidth()
                         .height(60.dp)
                         .align(Alignment.Center)
+                        .graphicsLayer { alpha = abs(revealProgress.value) }
                         .background(bg),
                 contentAlignment = align,
             ) {

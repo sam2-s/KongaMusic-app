@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -79,7 +81,13 @@ fun OnlineSearchScreen(
 
     val lazyListState = rememberLazyListState()
 
-    LaunchedEffect(Unit) {
+    // Hide the IME on scroll, but only while it is actually open.
+    // firstVisibleItemScrollOffset changes every pixel of a drag/fling, so the
+    // previous unconditional hide() posted an InputMethodManager call per frame
+    // for the whole gesture even when no IME was showing.
+    val imeVisible = WindowInsets.ime.asPaddingValues().calculateBottomPadding() > 0.dp
+    LaunchedEffect(imeVisible) {
+        if (!imeVisible) return@LaunchedEffect
         snapshotFlow { lazyListState.firstVisibleItemScrollOffset }
             .drop(1)
             .collect {

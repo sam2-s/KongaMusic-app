@@ -823,10 +823,6 @@ fun LocalPlaylistScreen(
                     ReorderableItem(
                         state = reorderableState,
                         key = song.map.id,
-                        modifier =
-                            Modifier.graphicsLayer {
-                                compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
-                            },
                     ) {
                         val currentItem by rememberUpdatedState(song)
 
@@ -969,10 +965,6 @@ fun LocalPlaylistScreen(
                     ReorderableItem(
                         state = reorderableState,
                         key = song.map.id,
-                        modifier =
-                            Modifier.graphicsLayer {
-                                compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
-                            },
                     ) {
                         val content: @Composable () -> Unit = {
                             SongListItem(

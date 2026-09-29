@@ -15,6 +15,8 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -71,7 +73,14 @@ fun LocalSearchScreen(
 
     val lazyListState = rememberLazyListState()
 
-    LaunchedEffect(Unit) {
+    // Hide the IME on scroll, but only while it is actually open.
+    // firstVisibleItemScrollOffset changes every pixel of a drag/fling, so the
+    // previous unconditional hide() posted an InputMethodManager call per frame
+    // for the whole gesture even when no IME was showing. The bottom inset is
+    // non-zero exactly while the IME is showing, so it gates the effect.
+    val imeVisible = WindowInsets.ime.asPaddingValues().calculateBottomPadding() > 0.dp
+    LaunchedEffect(imeVisible) {
+        if (!imeVisible) return@LaunchedEffect
         snapshotFlow { lazyListState.firstVisibleItemScrollOffset }
             .drop(1)
             .collect {

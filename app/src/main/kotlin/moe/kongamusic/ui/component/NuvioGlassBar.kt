@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.offset
 import dev.chrisbanes.haze.HazeState
@@ -147,6 +148,13 @@ private fun RefractedNuvioGlassSurface(
     glowStrength: Float,
 ) {
     val shader = remember { RuntimeShader(NuvioGlassShader) }
+    // RenderEffect.createRuntimeShaderEffect allocates a native effect object,
+    // and each setFloatUniform is a JNI call. Building both inside graphicsLayer
+    // did that on every draw — i.e. on every frame the jelly bar animates, since
+    // the surrounding layer reads motion.frame. Cache the composed effect in a
+    // plain (non-snapshot) holder keyed on the measured size, so the draw block
+    // only re-creates it when the bar is actually resized.
+    val glassEffectCache = remember { GlassEffectCache() }
     Box(
         modifier
             .layout { measurable, constraints ->
@@ -156,15 +164,44 @@ private fun RefractedNuvioGlassSurface(
                     placeable.place(-outset, -outset)
                 }
             }
+            .onSizeChanged { glassEffectCache.size = it.width.toFloat() to it.height.toFloat() }
             .graphicsLayer {
-                shader.setFloatUniform("resolution", size.width.toFloat(), size.height.toFloat())
-                shader.setFloatUniform("density", density)
-                shader.setFloatUniform("outset", NuvioGlassOutsetDp.dp.toPx())
-                shader.setFloatUniform("glowStrength", glowStrength)
-                renderEffect = RenderEffect.createRuntimeShaderEffect(shader, "backdrop").asComposeRenderEffect()
+                val effect = glassEffectCache.effect(shader)
+                if (effect != null) {
+                    shader.setFloatUniform("resolution", glassEffectCache.size.first, glassEffectCache.size.second)
+                    shader.setFloatUniform("density", density)
+                    shader.setFloatUniform("outset", NuvioGlassOutsetDp.dp.toPx())
+                    shader.setFloatUniform("glowStrength", glowStrength)
+                    renderEffect = effect
+                }
             }
             .barBackdrop(hazeState),
     )
+}
+
+/**
+ * Holds the composed [androidx.compose.ui.graphics.RenderEffect] for the glass
+ * shader. Deliberately a plain object rather than snapshot state: it is written
+ * and read from the draw phase, and snapshot writes there would be illegal.
+ */
+private class GlassEffectCache {
+    var size: Pair<Float, Float> = 0f to 0f
+        set(value) {
+            if (field != value) {
+                field = value
+                cached = null
+            }
+        }
+
+    private var cached: androidx.compose.ui.graphics.RenderEffect? = null
+
+    fun effect(shader: RuntimeShader): androidx.compose.ui.graphics.RenderEffect? {
+        if (size.first <= 0f || size.second <= 0f) return null
+        cached?.let { return it }
+        return RenderEffect.createRuntimeShaderEffect(shader, "backdrop")
+            .asComposeRenderEffect()
+            .also { cached = it }
+    }
 }
 
 private fun Modifier.barBackdrop(hazeState: HazeState): Modifier = hazeEffect(state = hazeState) {

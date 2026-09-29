@@ -630,7 +630,6 @@ private fun SharedTransitionScope.ExpandedTabs(
         .then(tabBarContentModifier)
         .padding(sizes.tabBarContentPadding)
         .wrapContentWidth(align = Alignment.Start, unbounded = true)
-        .animateContentSize()
   ) {
     if (targetWidth > 0.dp) {
       Box(
@@ -682,9 +681,18 @@ private fun SharedTransitionScope.ExpandedTabs(
           isInline = false,
           modifier =
             Modifier.onGloballyPositioned { coords ->
-                tabWidths[index] = with(density) { coords.size.width.toDp() }
-                tabHeights[index] = with(density) { coords.size.height.toDp() }
-                tabOffsets[index] = with(density) { coords.positionInParent().x.toDp() }
+                // Only write when a value actually changed. These three maps feed
+                // the animateDpAsState targets for the indicator pill, and the pill
+                // size is itself a layout input — so an unconditional write made
+                // every measure restart all three springs, turning each frame of
+                // the collapse/expand transition into a full re-measure of the tab
+                // row.
+                val width = with(density) { coords.size.width.toDp() }
+                val height = with(density) { coords.size.height.toDp() }
+                val offset = with(density) { coords.positionInParent().x.toDp() }
+                if (tabWidths[index] != width) tabWidths[index] = width
+                if (tabHeights[index] != height) tabHeights[index] = height
+                if (tabOffsets[index] != offset) tabOffsets[index] = offset
               }
               .skipToLookaheadSize()
               .clip(shapes.tabShape)

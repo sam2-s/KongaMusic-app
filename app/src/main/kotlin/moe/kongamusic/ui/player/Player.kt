@@ -488,18 +488,45 @@ fun BottomSheetPlayer(
                 if (darkTheme == DarkMode.AUTO) isSystemInDarkTheme else darkTheme == DarkMode.ON
             useDarkTheme && pureBlack
         }
-    val backgroundColor =
-        if (useBlackBackground && state.value > state.collapsedBound) {
+    // `state.value` is written every frame of any sheet animation. Reading it
+    // directly in the composable body made BottomSheetPlayer's restart scope
+    // re-execute in full on each frame (15 collectAsState calls, 25
+    // rememberPreference calls, the 12-branch design `when`, the whole player
+    // UI). derivedStateOf caches the last result, so recomposition happens only
+    // when the resulting *colour* actually changes.
+    val surfaceContainerColor = MaterialTheme.colorScheme.surfaceContainer
+    val backgroundColor by remember(useBlackBackground, surfaceContainerColor, state.collapsedBound, state.expandedBound) {
+        derivedStateOf {
             val progress =
                 ((state.value - state.collapsedBound) / (state.expandedBound - state.collapsedBound))
                     .coerceIn(0f, 1f)
-            Color.Black.copy(alpha = progress)
-        } else {
-            val progress =
-                ((state.value - state.collapsedBound) / (state.expandedBound - state.collapsedBound))
-                    .coerceIn(0f, 1f)
-            MaterialTheme.colorScheme.surfaceContainer.copy(alpha = progress)
+            if (useBlackBackground && state.value > state.collapsedBound) {
+                Color.Black.copy(alpha = progress)
+            } else {
+                surfaceContainerColor.copy(alpha = progress)
+            }
         }
+    }
+
+    /**
+     * The sheet's own fade term, shared by every branch of the `backgroundColor`
+     * `when` below. Like [backgroundColor] this must be a `derivedStateOf`: it
+     * reads the per-frame [state] value, and reading that directly in the
+     * composable body re-executed the whole player on every frame of a
+     * drag/fling/open/close.
+     */
+    val sheetFadeProgress by remember(state.collapsedBound, state.expandedBound) {
+        derivedStateOf {
+            val progress =
+                ((state.value - state.collapsedBound) / (state.expandedBound - state.collapsedBound))
+                    .coerceIn(0f, 1f)
+            if (progress < 0.2f) {
+                ((0.2f - progress) / 0.2f).coerceIn(0f, 1f)
+            } else {
+                0f
+            }
+        }
+    }
 
     val playbackState by playerConnection.playbackState.collectAsStateWithLifecycle()
     val isPlaying by playerConnection.isPlaying.collectAsStateWithLifecycle()
@@ -1306,78 +1333,23 @@ fun BottomSheetPlayer(
                 },
         backgroundColor =
             if (playerDesignStyle == PlayerDesignStyle.V9) {
-
-                val progress =
-                    ((state.value - state.collapsedBound) / (state.expandedBound - state.collapsedBound))
-                        .coerceIn(0f, 1f)
-                val fadeProgress =
-                    if (progress < 0.2f) {
-                        ((0.2f - progress) / 0.2f).coerceIn(0f, 1f)
-                    } else {
-                        0f
-                    }
-                dynamicBgColor.copy(alpha = 1f - fadeProgress)
+                dynamicBgColor.copy(alpha = 1f - sheetFadeProgress)
             } else if (playerDesignStyle == PlayerDesignStyle.V10) {
-                val progress =
-                    ((state.value - state.collapsedBound) / (state.expandedBound - state.collapsedBound))
-                        .coerceIn(0f, 1f)
-                val fadeProgress =
-                    if (progress < 0.2f) {
-                        ((0.2f - progress) / 0.2f).coerceIn(0f, 1f)
-                    } else {
-                        0f
-                    }
-                dynamicV10FieldColor.copy(alpha = 1f - fadeProgress)
+                dynamicV10FieldColor.copy(alpha = 1f - sheetFadeProgress)
             } else if (playerDesignStyle == PlayerDesignStyle.V7) {
-                val progress =
-                    ((state.value - state.collapsedBound) / (state.expandedBound - state.collapsedBound))
-                        .coerceIn(0f, 1f)
-                val fadeProgress =
-                    if (progress < 0.2f) {
-                        ((0.2f - progress) / 0.2f).coerceIn(0f, 1f)
-                    } else {
-                        0f
-                    }
-                Color.Black.copy(alpha = 1f - fadeProgress)
+                Color.Black.copy(alpha = 1f - sheetFadeProgress)
             } else {
                 when (playerBackground) {
-                    PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.GRADIENT -> {
+                    PlayerBackgroundStyle.BLUR,
+                    PlayerBackgroundStyle.GRADIENT,
+                    -> MaterialTheme.colorScheme.surface.copy(alpha = 1f - sheetFadeProgress)
 
-                        val progress =
-                            ((state.value - state.collapsedBound) / (state.expandedBound - state.collapsedBound))
-                                .coerceIn(0f, 1f)
-
-                        val fadeProgress =
-                            if (progress < 0.2f) {
-                                ((0.2f - progress) / 0.2f).coerceIn(0f, 1f)
-                            } else {
-                                0f
-                            }
-
-                        MaterialTheme.colorScheme.surface.copy(alpha = 1f - fadeProgress)
-                    }
-
-                    else -> {
-
-                        val progress =
-                            ((state.value - state.collapsedBound) / (state.expandedBound - state.collapsedBound))
-                                .coerceIn(0f, 1f)
-
-                        val fadeProgress =
-                            if (progress < 0.2f) {
-                                ((0.2f - progress) / 0.2f).coerceIn(0f, 1f)
-                            } else {
-                                0f
-                            }
-
+                    else ->
                         if (useBlackBackground) {
-
-                            Color.Black.copy(alpha = 1f - fadeProgress)
+                            Color.Black.copy(alpha = 1f - sheetFadeProgress)
                         } else {
-
-                            MaterialTheme.colorScheme.surface.copy(alpha = 1f - fadeProgress)
+                            MaterialTheme.colorScheme.surface.copy(alpha = 1f - sheetFadeProgress)
                         }
-                    }
                 }
             },
         onDismiss = {
