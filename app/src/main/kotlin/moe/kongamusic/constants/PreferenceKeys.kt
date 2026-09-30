@@ -994,6 +994,15 @@ enum class NavigationBarStyle {
     LIQUID_GLASS,
     NUVIO_GLASS,
     FLOATING_TAB_BAR,
+
+    /**
+     * BitChord's glass navigation bar (github.com/kushagrasinghx/bitchord,
+     * GPL-3.0): the now-playing controls and the tab pill are one component
+     * rather than two stacked bars, and scrolling folds it inline to a single
+     * screen-width row. Falls back to the floating bottom bar when Liquid Glass
+     * is off or the device is below API 31, mirroring BitChord's own choice.
+     */
+    BITCHORD,
 }
 
 val NavigationBarStyleKey = stringPreferencesKey("navigationBarStyle")

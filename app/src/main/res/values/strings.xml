@@ -584,6 +584,9 @@
     <string name="navigation_bar_frosted_blur">Frosted navigation bar</string>
     <string name="navigation_bar_frosted_blur_desc">Apply a frosted blur behind the navigation bar</string>
     <string name="navigation_bar_frosted_blur_unsupported">Frosted navigation bar is not supported on Android versions below 12</string>
+    <string name="widget_next">Next</string>
+    <string name="pause">Pause</string>
+    <string name="navigation_bar_style_bitchord">BitChord (collapses on scroll)</string>
     <string name="nav_bar_hide_on_scroll">Minimize on scroll</string>
     <string name="nav_bar_hide_on_scroll_desc">Scrolling down minimizes the navigation bar, and the mini player takes over the space it frees instead of being covered by it. Scrolling up brings the bar back.</string>
     <string name="hide_navigation_bar_labels">Hide labels in navigation bar</string>

@@ -242,6 +242,8 @@ fun NavigationBarSettings(navController: NavController, scrollTo: String? = null
                                         stringResource(R.string.navigation_bar_style_nuvio_glass)
                                     NavigationBarStyle.FLOATING_TAB_BAR ->
                                         stringResource(R.string.navigation_bar_style_floating_tab_bar)
+                                    NavigationBarStyle.BITCHORD ->
+                                        stringResource(R.string.navigation_bar_style_bitchord)
                                 }
                             },
                         )
