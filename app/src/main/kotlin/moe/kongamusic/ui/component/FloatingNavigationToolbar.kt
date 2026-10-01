@@ -123,6 +123,15 @@ import moe.kongamusic.constants.NavigationBarOpacityKey
 import moe.kongamusic.constants.NavigationBarStyle
 import moe.kongamusic.constants.NavigationBarTransparencyKey
 import moe.kongamusic.constants.NavigationBarWidthKey
+import moe.kongamusic.ui.component.bitchord.BitChordBarSong
+import moe.kongamusic.ui.component.bitchord.BottomTab
+import moe.kongamusic.ui.component.bitchord.FloatingBottomBar
+import moe.kongamusic.ui.component.bitchord.GlassNavBar
+import moe.kongamusic.ui.component.bitchord.LocalLiquidGlassEnabled
+import moe.kongamusic.ui.component.bitchord.MiniPlayer
+import moe.kongamusic.ui.component.bitchord.floatingtabbar.FloatingTabBarScrollConnection
+import moe.kongamusic.ui.component.bitchord.floatingtabbar.rememberFloatingTabBarScrollConnection
+import androidx.compose.runtime.CompositionLocalProvider
 import moe.kongamusic.ui.screens.Screens
 import moe.kongamusic.ui.component.nuvio.JellyFloatingNavigationBar
 import moe.kongamusic.ui.component.nuvio.JellyFloatingNavigationItem
@@ -199,6 +208,17 @@ fun FloatingNavigationToolbar(
     isSelected: (Screens) -> Boolean,
     onItemClick: (Screens, Boolean) -> Unit,
     onSearchItemDoubleClick: (() -> Unit)? = null,
+    // BitChord bar (NavigationBarStyle.BITCHORD). The connection is created by
+    // the caller because the page's scroll is what drives it and the page is a
+    // sibling of this bar, not a child — see MainActivity.
+    bitChordScrollConnection: FloatingTabBarScrollConnection? = null,
+    bitChordSong: BitChordBarSong? = null,
+    bitChordIsPlaying: Boolean = false,
+    bitChordIsLoading: Boolean = false,
+    onPlayPause: () -> Unit = {},
+    onNextTrack: () -> Unit = {},
+    onPreviousTrack: () -> Unit = {},
+    onExpandPlayer: () -> Unit = {},
 ) {
     val isFloating =
         style == NavigationBarStyle.FLOATING ||
@@ -309,6 +329,80 @@ fun FloatingNavigationToolbar(
     val (disableAnimations) = rememberPreference(DisableAnimationsKey, defaultValue = false)
     val (hideNavigationLabels) = rememberPreference(HideNavigationBarLabelsKey, defaultValue = false)
     val density = LocalDensity.current
+
+    // BitChord's glass nav bar (github.com/kushagrasinghx/bitchord, GPL-3.0):
+    // the now-playing controls and the tab pill are one component that folds
+    // inline on scroll, rather than two stacked bars. Chosen over the other
+    // styles because it is the one that collapses the way the user asked for.
+    if (style == NavigationBarStyle.BITCHORD) {
+        // Remembered so the fallback keeps one HazeState instead of allocating a
+        // new one on every recomposition, which would restart its effect each pass.
+        // rememberFloatingTabBarScrollConnection() is @Composable, so it has to be
+        // called directly; remember only stores whichever connection won.
+        val fallbackConnection = rememberFloatingTabBarScrollConnection()
+        val connection = bitChordScrollConnection ?: fallbackConnection
+        val bitChordHazeState = remember(nuvioHazeState) { nuvioHazeState ?: HazeState() }
+        val selectedIndex = items.indexOfFirst { isSelected(it) }.coerceAtLeast(0)
+        val bitChordTabs =
+            items.map { screen ->
+                BottomTab(
+                    label = stringResource(screen.titleId),
+                    // painterResource/stringResource are composable, so this list
+                    // is built inline rather than inside a remember block.
+                    icon = painterResource(screen.iconIdActive),
+                )
+            }
+        val useGlass = liquidGlass && liquidGlassBackdrop != null && !isPreS
+        CompositionLocalProvider(LocalLiquidGlassEnabled provides liquidGlass) {
+            if (useGlass) {
+                GlassNavBar(
+                    tabs = bitChordTabs,
+                    selectedIndex = selectedIndex,
+                    onTabSelected = { index ->
+                        items.getOrNull(index)?.let { onItemClick(it, isSelected(it)) }
+                    },
+                    scrollConnection = connection,
+                    song = bitChordSong,
+                    isPlaying = bitChordIsPlaying,
+                    isLoading = bitChordIsLoading,
+                    onPlayPause = onPlayPause,
+                    onNext = onNextTrack,
+                    onPrevious = onPreviousTrack,
+                    onExpand = onExpandPlayer,
+                    modifier = modifier,
+                )
+            } else {
+                // BitChord's own fallback: the glass bar needs a backdrop, so
+                // without it they draw the floating bottom bar and the mini
+                // player as separate bars.
+                Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+                    FloatingBottomBar(
+                        tabs = bitChordTabs,
+                        selectedIndex = selectedIndex,
+                        onTabSelected = { index ->
+                            items.getOrNull(index)?.let { onItemClick(it, isSelected(it)) }
+                        },
+                        hazeState = bitChordHazeState,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    bitChordSong?.let { song ->
+                        MiniPlayer(
+                            song = song,
+                            isPlaying = bitChordIsPlaying,
+                            isLoading = bitChordIsLoading,
+                            hazeState = bitChordHazeState,
+                            onPlayPause = onPlayPause,
+                            onNext = onNextTrack,
+                            onPrevious = onPreviousTrack,
+                            onExpand = onExpandPlayer,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+        }
+        return
+    }
 
     // iOS 26 style floating tab bar: pill with tabs + standalone search circle.
     // Scroll-driven inline/expanded transition driven by isNavBarHiddenByScroll.

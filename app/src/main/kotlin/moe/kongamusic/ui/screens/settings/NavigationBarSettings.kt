@@ -113,7 +113,7 @@ fun NavigationBarSettings(navController: NavController, scrollTo: String? = null
         rememberPreference(NavigationBarTintFrostedBlurKey, defaultValue = false)
 
     val (liquidGlassEnabled) =
-        rememberPreference(LiquidGlassEnabledKey, defaultValue = true)
+        rememberPreference(LiquidGlassEnabledKey, defaultValue = false)
     val (liquidGlassNavBarEnabled, onLiquidGlassNavBarEnabledChange) =
         rememberPreference(LiquidGlassNavBarEnabledKey, defaultValue = false)
     val (navBarHideOnScroll, onNavBarHideOnScrollChange) =

@@ -44,7 +44,9 @@ import moe.kongamusic.constants.AudioQualityKey
 import moe.kongamusic.constants.DownloadSource
 import moe.kongamusic.constants.DownloadSourceConfig
 import moe.kongamusic.constants.DownloadSourceKey
+import moe.kongamusic.constants.AutoExportDownloadsKey
 import moe.kongamusic.constants.LosslessDownloadOnlyKey
+import moe.kongamusic.models.toMediaMetadata
 import moe.kongamusic.constants.DownloadSourceOrderKey
 import moe.kongamusic.constants.DeezerAudioQuality
 import moe.kongamusic.constants.DeezerAudioQualityKey
@@ -378,6 +380,36 @@ class DownloadUtil
             }
         }
 
+        /**
+         * Copies a finished download into shared Music/KongaMusic, tagged with
+         * ID3 and accompanied by a `.lrc` sidecar when lyrics are available.
+         *
+         * Fire-and-forget: a failed export must never disturb playback or the
+         * download state, so every step is wrapped and logged rather than
+         * thrown. Off unless [AutoExportDownloadsKey] is enabled.
+         */
+        private fun publishCompletedDownload(download: Download) {
+            val mediaId = DownloadSourceConfig.downloadIdToSongId(download.request.id)
+            downloadScope.launch {
+                runCatching {
+                        val enabled =
+                            appContext.dataStore.data
+                                .first()[AutoExportDownloadsKey] ?: false
+                        if (!enabled) return@runCatching
+                    }
+                    .onFailure { return@launch }
+
+                val song = database.getSongById(mediaId) ?: return@launch
+                val file =
+                    runCatching {
+                        downloadCache.getCachedSpans(download.request.id).firstOrNull()?.file
+                    }
+                        .getOrNull() ?: return@launch
+
+                SharedMusicExporter.export(appContext, file, song.toMediaMetadata())
+            }
+        }
+
         private val playerCacheDownloadUpstreamFactory =
             CacheDataSource
                 .Factory()
@@ -621,6 +653,13 @@ class DownloadUtil
                                 download.state == Download.STATE_REMOVING
                             ) {
                                 autoRetryCounts.remove(download.request.id)
+                            }
+                            if (download.state == Download.STATE_COMPLETED) {
+                                // LastWave-style: mirror the finished file into
+                                // shared Music/KongaMusic so other players and the
+                                // user's own library can see it. Media3 otherwise
+                                // leaves it in an app-private cache.
+                                publishCompletedDownload(download)
                             }
                             downloadState.put(download.request.id, download)
                         }

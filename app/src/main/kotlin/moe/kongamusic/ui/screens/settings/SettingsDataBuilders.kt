@@ -79,6 +79,7 @@ import moe.kongamusic.constants.SmartTrimmerKey
 import moe.kongamusic.constants.StopMusicOnTaskClearKey
 import moe.kongamusic.constants.SyncPlaybackToYouTubeHistoryKey
 import moe.kongamusic.constants.SwipeToSongKey
+import moe.kongamusic.constants.AutoExportDownloadsKey
 import moe.kongamusic.constants.TelegramLosslessOnlyKey
 import moe.kongamusic.constants.TidalArtworkFallbackEnabledKey
 import moe.kongamusic.constants.TidalEnabledKey
@@ -173,7 +174,7 @@ fun buildSettingsGroups(
                 SettingsChild("Navigation bar style", "navigation_bar_style", listOf("navigation bar", "nav bar", "bottom bar")),
                 SettingsChild("Frosted navigation bar", "frosted_nav_bar", listOf("frosted nav", "frosted navigation", "frosted blur")) { SearchResultSwitch(NavigationBarFrostedBlurKey, false) },
                 SettingsChild("Liquid Glass navigation bar", "liquid_glass_nav_bar", listOf("liquid glass", "glass nav", "glass navigation", "liquid nav")) { SearchResultSwitch(LiquidGlassNavBarEnabledKey, false) },
-                SettingsChild("Liquid Glass effects", "liquid_glass_effects", listOf("liquid glass", "glass effects", "liquid glass effects", "header glass", "mini player glass")) { SearchResultSwitch(LiquidGlassEnabledKey, true) },
+                SettingsChild("Liquid Glass effects", "liquid_glass_effects", listOf("liquid glass", "glass effects", "liquid glass effects", "header glass", "mini player glass")) { SearchResultSwitch(LiquidGlassEnabledKey, false) },
                 SettingsChild("Hide labels in navigation bar", "hide_navigation_bar_labels", listOf("hide labels", "navigation labels", "nav labels", "icons only")) { SearchResultSwitch(HideNavigationBarLabelsKey, false) },
                 SettingsChild("Navigation bar customization", "navigation_bar_settings", listOf("navigation bar", "nav bar dimensions", "nav bar opacity", "nav bar width", "nav bar height", "nav bar corner radius", "nav bar label spacing")),
                 SettingsChild("Hide scrollbar", "hide_scrollbar", listOf("scrollbar", "scroll bar", "hide scroll", "no scrollbar")) { SearchResultSwitch(HideScrollbarKey, false) },
@@ -313,7 +314,6 @@ fun buildSettingsGroups(
                 SettingsChild("Enable Tidal source", "tidal_enable", listOf("tidal", "enable tidal", "tidal source", "lossless", "hifi")),
                 SettingsChild("Use my Tidal account first", "tidal_account_first", listOf("tidal account first", "my tidal account", "prefer my account")),
                 SettingsChild("Tidal audio quality", "tidal_audio_quality", listOf("tidal quality", "tidal audio quality", "tidal hifi", "tidal max", "mqa")),
-                SettingsChild("Tidal animated covers", "tidal_animated_covers", listOf("tidal animated covers", "tidal canvas", "tidal video cover", "animated cover")),
                 SettingsChild("Manage Tidal instances", "tidal_manage_instances", listOf("tidal instances", "tidal server", "tidal endpoint", "manage instances")),
                 SettingsChild("Enable Qobuz source", "qobuz_enable", listOf("qobuz", "enable qobuz", "qobuz source", "hi-res", "flac")),
                 SettingsChild("Qobuz audio quality", "qobuz_audio_quality", listOf("qobuz quality", "qobuz audio quality", "hi-res", "flac", "cd quality", "24 bit")),
@@ -726,6 +726,7 @@ fun buildSettingsGroups(
                 SettingsChild("Sign out", "telegram_logout", listOf("telegram logout", "telegram sign out", "disconnect telegram")),
                 SettingsChild("Browse channels", "telegram_browse_channels", listOf("browse channels", "telegram channels", "music channels", "add channel")),
                 SettingsChild("Lossless files only", "telegram_lossless_only", listOf("lossless only", "telegram lossless", "flac only", "high quality only")) { SearchResultSwitch(TelegramLosslessOnlyKey, false) },
+                SettingsChild("Export downloads to Music folder", "auto_export_downloads", listOf("export downloads", "shared music", "music folder", "id3 tags", "lrc lyrics", "lastwave")) { SearchResultSwitch(AutoExportDownloadsKey, false) },
                 SettingsChild("Telegram bots", "telegram_bots_title", listOf("telegram bots", "bot token", "music bot")),
             ),
         )

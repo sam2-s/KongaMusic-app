@@ -215,7 +215,7 @@ fun AppearanceSettings(navController: NavController, scrollTo: String? = null) {
     val (liquidGlassEnabled, onLiquidGlassEnabledChange) =
         rememberPreference(
             LiquidGlassEnabledKey,
-            defaultValue = true,
+            defaultValue = false,
         )
     val (pureBlack, onPureBlackChange) = rememberPreference(PureBlackKey, defaultValue = false)
     val (disableBlur, onDisableBlurChange) = rememberPreference(DisableBlurKey, defaultValue = false)

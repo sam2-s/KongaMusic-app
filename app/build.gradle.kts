@@ -235,8 +235,11 @@ android {
         create("universal") {
             dimension = "abi"
 
+            // arm64 only. Shipping armeabi-v7a as well doubled the native
+            // payload for 32-bit devices that are effectively gone; the user
+            // chose the smaller APK over 32-bit device support.
             ndk {
-                abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+                abiFilters += "arm64-v8a"
             }
             buildConfigField("String", "ARCHITECTURE", "\"universal\"")
         }

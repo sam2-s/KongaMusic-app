@@ -283,6 +283,8 @@ import moe.kongamusic.playback.queues.Queue
 import moe.kongamusic.playback.queues.YouTubeQueue
 import moe.kongamusic.qobuz.QobuzAudioProvider
 import moe.kongamusic.utils.PoolAccountManager
+import moe.kongamusic.ui.component.bitchord.toBitChordBarSong
+import moe.kongamusic.ui.component.bitchord.floatingtabbar.rememberFloatingTabBarScrollConnection
 import moe.kongamusic.ui.component.BottomSheetMenu
 import moe.kongamusic.ui.component.BottomSheetPage
 import moe.kongamusic.ui.component.COLLAPSED_ANCHOR
@@ -799,7 +801,7 @@ class MainActivity : ComponentActivity() {
             // header's own haze stayed disabled.
             val liquidGlassEnabled by rememberPreference(
                 LiquidGlassEnabledKey,
-                defaultValue = true,
+                defaultValue = false,
             )
             val liquidGlassNavBarEnabled by rememberPreference(
                 LiquidGlassNavBarEnabledKey,
@@ -1232,6 +1234,39 @@ class MainActivity : ComponentActivity() {
                     // changes so a freshly opened tab always starts with the
                     // bar visible. Gated on NavBarHideOnScrollKey (default on).
                     val navBarHideOnScroll by rememberPreference(NavBarHideOnScrollKey, true)
+                    // BitChord's bar folds on scroll, and its connection is driven by
+                    // the page's scroll (attached to the Scaffold content below), so
+                    // it is held here rather than created inside the bar.
+                    val bitChordNavScrollConnection = rememberFloatingTabBarScrollConnection()
+                    // playerConnection is a nullable state at activity scope, so
+                    // the bar's song/playback state is read through the local
+                    // snapshot other call sites already take. Each flow is
+                    // collected via remember so the composition stays valid even
+                    // before the service binds.
+                    val bitChordConnection = playerConnection
+                    val bitChordMediaMetadata by
+                        remember(bitChordConnection) {
+                            bitChordConnection?.mediaMetadata
+                                ?: MutableStateFlow<moe.kongamusic.models.MediaMetadata?>(null)
+                        }
+                        .collectAsStateWithLifecycle()
+                    val bitChordIsPlaying by
+                        remember(bitChordConnection) {
+                            bitChordConnection?.isPlaying ?: MutableStateFlow(false)
+                        }
+                        .collectAsStateWithLifecycle()
+                    val bitChordBarSong =
+                        remember(bitChordMediaMetadata) {
+                            bitChordMediaMetadata?.toBitChordBarSong()
+                        }
+                    val bitChordPlaybackState by
+                        remember(bitChordConnection) {
+                            bitChordConnection?.playbackState
+                                ?: MutableStateFlow(Player.STATE_IDLE)
+                        }
+                        .collectAsStateWithLifecycle()
+                    val bitChordPlayPauseBusy =
+                        bitChordPlaybackState == Player.STATE_BUFFERING
                     var isNavBarHiddenByScroll by remember { mutableStateOf(false) }
                     LaunchedEffect(navBackStackEntry?.destination?.route) {
                         isNavBarHiddenByScroll = false
@@ -1406,6 +1441,10 @@ class MainActivity : ComponentActivity() {
                                     MiniPlayerHeight,
                             expandedBound = maxHeight,
                         )
+
+                    // BitChord's mini player expands the existing player sheet
+                    // rather than opening its own screen.
+                    val expandPlayer = { playerBottomSheetState.expandSoft() }
 
                     val playerBackground by rememberEnumPreference(
                         key = PlayerBackgroundStyleKey,
@@ -2825,6 +2864,22 @@ class MainActivity : ComponentActivity() {
                                                     searchSource = SearchSource.ONLINE
                                                     openSearch()
                                                 },
+                                                // BitChord bar: the page's scroll drives
+                                                // its fold, so the connection is created
+                                                // here at activity level rather than
+                                                // inside the bar.
+                                                bitChordScrollConnection = bitChordNavScrollConnection,
+                                                bitChordSong = bitChordBarSong,
+                                                bitChordIsPlaying = bitChordIsPlaying,
+                                                bitChordIsLoading = bitChordPlayPauseBusy,
+                                                onPlayPause = {
+                                                    bitChordConnection?.player?.let { p ->
+                                                        if (p.isPlaying) p.pause() else p.play()
+                                                    }
+                                                },
+                                                onNextTrack = { bitChordConnection?.seekToNext() },
+                                                onPreviousTrack = { bitChordConnection?.seekToPrevious() },
+                                                onExpandPlayer = { expandPlayer() },
                                             )
                                         }
                                     }
@@ -2978,6 +3033,18 @@ class MainActivity : ComponentActivity() {
                                                 topAppBarScrollBehavior.nestedScrollConnection,
                                             ).nestedScroll(
                                                 navBarScrollHideConnection,
+                                            ).then(
+                                                // BitChord's bar folds on scroll, and
+                                                // the page's scroll is what has to drive
+                                                // it — the page is a sibling of the bar,
+                                                // not a child. Without this the
+                                                // connection never sees any scroll and
+                                                // the bar never folds.
+                                                if (navigationBarStyle == NavigationBarStyle.BITCHORD) {
+                                                    Modifier.nestedScroll(bitChordNavScrollConnection)
+                                                } else {
+                                                    Modifier
+                                                },
                                             ),
                                 ) {
                                     navigationBuilder(

@@ -133,7 +133,7 @@ private val CROSS_PAGE_SCROLL_OWNERS: Map<String, String> =
             "sources", "playback",
             "preferred_sources", "auto_choose_playback_client", "player_stream_client",
             "check_source", "spotify_catalog_source", "tidal_enable", "tidal_account_first",
-            "tidal_audio_quality", "tidal_animated_covers", "tidal_manage_instances",
+            "tidal_audio_quality", "tidal_manage_instances",
             "qobuz_enable", "qobuz_audio_quality", "qobuz_backup_enable", "qobuz_manage_instances",
             "deezer_enable", "deezer_audio_quality", "jiosaavn_enable", "jiosaavn_audio_quality",
             "amazon_enable",

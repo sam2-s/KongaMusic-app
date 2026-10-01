@@ -485,6 +485,13 @@ val LosslessOnlyModeKey = booleanPreferencesKey("losslessOnlyMode")
  */
 val LosslessDownloadOnlyKey = booleanPreferencesKey("losslessDownloadOnly")
 
+/**
+ * Mirror finished downloads into shared Music/KongaMusic, like LastWave does, so
+ * other players, file managers and the user's own library can see them. Media3
+ * otherwise keeps downloads in an app-private cache nothing else can read.
+ */
+val AutoExportDownloadsKey = booleanPreferencesKey("autoExportDownloadsToSharedMusic")
+
 enum class AudioQuality {
     AUTO,
     HIGH,
@@ -1182,7 +1189,6 @@ val TidalCookieKey = stringPreferencesKey("tidalCookie")
 val TidalEnabledKey = booleanPreferencesKey("tidalEnabled")
 val TidalAudioQualityKey = stringPreferencesKey("tidalAudioQuality")
 val TidalArtworkFallbackEnabledKey = booleanPreferencesKey("tidalArtworkFallbackEnabled")
-val TidalAnimatedCoversEnabledKey = booleanPreferencesKey("tidalAnimatedCoversEnabled")
 val TidalAccountNameKey = stringPreferencesKey("tidal_account_name")
 
 val TidalInstancesKey = stringPreferencesKey("tidalInstances")

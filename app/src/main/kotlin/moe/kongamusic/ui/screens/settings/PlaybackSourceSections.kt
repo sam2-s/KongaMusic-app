@@ -76,7 +76,6 @@ import moe.kongamusic.constants.QobuzEnabledKey
 import moe.kongamusic.constants.QobuzBackupEnabledKey
 import moe.kongamusic.constants.QobuzBackupEndpointsKey
 import moe.kongamusic.constants.TidalAccountFirstKey
-import moe.kongamusic.constants.TidalAnimatedCoversEnabledKey
 import moe.kongamusic.constants.TidalAudioQuality
 import moe.kongamusic.constants.TidalAudioQualityKey
 import moe.kongamusic.constants.TidalEnabledKey
@@ -86,6 +85,7 @@ import moe.kongamusic.constants.InnerTubeCookieKey
 import moe.kongamusic.constants.PoTokenGvsKey
 import moe.kongamusic.constants.PoTokenPlayerKey
 import moe.kongamusic.constants.AudioQualityKey
+import moe.kongamusic.constants.AutoExportDownloadsKey
 import moe.kongamusic.constants.LosslessDownloadOnlyKey
 import moe.kongamusic.constants.LosslessOnlyModeKey
 import moe.kongamusic.constants.DefaultMetadataSourceKey
@@ -209,6 +209,8 @@ internal fun PlaybackSourceSections(
         rememberPreference(LosslessOnlyModeKey, false)
     val (losslessDownloadOnly, onLosslessDownloadOnlyChange) =
         rememberPreference(LosslessDownloadOnlyKey, false)
+    val (autoExportDownloads, onAutoExportDownloadsChange) =
+        rememberPreference(AutoExportDownloadsKey, false)
     val (innerTubeCookie, _) = rememberPreference(InnerTubeCookieKey, defaultValue = "")
     val (poTokenGvs, _) = rememberPreference(PoTokenGvsKey, defaultValue = "")
     val (poTokenPlayer, _) = rememberPreference(PoTokenPlayerKey, defaultValue = "")
@@ -240,9 +242,6 @@ internal fun PlaybackSourceSections(
     var qobuzBackupEndpointsDraft by rememberSaveable { mutableStateOf("") }
     val (appleMusicQuality, onAppleMusicQualityChange) =
         rememberEnumPreference(AppleMusicQualityKey, AppleMusicQuality.HI_RES_LOSSLESS)
-
-    val (animatedCovers, onAnimatedCoversChange) =
-        rememberPreference(TidalAnimatedCoversEnabledKey, false)
 
     val sourceOrder =
         remember(sourceOrderRaw) {
@@ -387,6 +386,16 @@ internal fun PlaybackSourceSections(
         }
         item {
             SwitchPreference(
+                modifier = positions.modifierFor("auto_export_downloads"),
+                title = { Text(stringResource(R.string.auto_export_downloads_title)) },
+                description = stringResource(R.string.auto_export_downloads_description),
+                icon = { Icon(painterResource(R.drawable.ic_mqa), null) },
+                checked = autoExportDownloads,
+                onCheckedChange = onAutoExportDownloadsChange,
+            )
+        }
+        item {
+            SwitchPreference(
                 modifier = positions.modifierFor("lossless_only_mode"),
                 title = { Text(stringResource(R.string.lossless_only_mode_title)) },
                 description = stringResource(R.string.lossless_only_mode_description),
@@ -511,17 +520,6 @@ internal fun PlaybackSourceSections(
                         TidalAudioQuality.HI_RES_LOSSLESS -> stringResource(R.string.tidal_quality_hires)
                     }
                 },
-            )
-        }
-
-        item {
-            SwitchPreference(
-                modifier = positions.modifierFor("tidal_animated_covers"),
-                title = { Text(stringResource(R.string.tidal_animated_covers)) },
-                description = stringResource(R.string.tidal_animated_covers_description),
-                checked = animatedCovers,
-                onCheckedChange = onAnimatedCoversChange,
-                isEnabled = tidalEnabled,
             )
         }
 

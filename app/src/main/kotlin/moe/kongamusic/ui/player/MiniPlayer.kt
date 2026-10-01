@@ -251,7 +251,7 @@ private fun NewMiniPlayer(
         }
     val liquidGlassMaster by rememberPreference(
         moe.kongamusic.constants.LiquidGlassEnabledKey,
-        defaultValue = true,
+        defaultValue = false,
     )
     val effectiveBackgroundStyle =
         when {

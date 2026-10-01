@@ -37,7 +37,7 @@ import androidx.compose.runtime.getValue
 
 @Composable
 fun rememberLiquidGlassEnabled(): Boolean {
-    val enabled by rememberPreference(LiquidGlassEnabledKey, defaultValue = true)
+    val enabled by rememberPreference(LiquidGlassEnabledKey, defaultValue = false)
     return enabled
 }
 

@@ -258,6 +258,10 @@ fun Modifier.liquidGlass(
                 drawBackdrop()
             },
             shape = { shape },
+            // NOTE: kyant backdrop 2.0.0 has no resolution-scale parameter, so
+            // the backdrop cannot be downsampled here the way BitChord does.
+            // Lag is instead handled by defaulting the effect off and gating the
+            // frosted pass; see LiquidGlassEnabledKey.
             onDrawBehind =
                 if (baseColor != Color.Unspecified) {
                     { drawRect(baseColor) }

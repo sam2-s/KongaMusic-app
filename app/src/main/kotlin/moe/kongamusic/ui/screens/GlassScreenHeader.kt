@@ -49,7 +49,7 @@ class GlassScreenHeader(
 
 @Composable
 fun rememberGlassScreenHeader(): GlassScreenHeader {
-    val liquidGlassEnabled by rememberPreference(LiquidGlassEnabledKey, defaultValue = true)
+    val liquidGlassEnabled by rememberPreference(LiquidGlassEnabledKey, defaultValue = false)
     val lyricsFullScreen = LocalPlayerLyricsFullScreen.current
     val surfaceColor = MaterialTheme.colorScheme.surface
 

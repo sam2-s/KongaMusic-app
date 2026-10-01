@@ -959,8 +959,6 @@
     <string name="tidal_artwork_fallback">Use Tidal artwork</string>
     <string name="tidal_artwork_fallback_description">Fall back to Tidal cover art when no artwork is available. May make network requests.</string>
     <string name="tidal_artwork_fallback_unavailable">Requires Tidal to be enabled under Streaming sources. May make network requests.</string>
-    <string name="tidal_animated_covers">Animated covers</string>
-    <string name="tidal_animated_covers_description">Show Tidal video/canvas covers when available</string>
     <string name="tidal_account">Account (optional)</string>
     <string name="tidal_account_description">Optional. Improves matching and gives access to your library.</string>
     <string name="tidal_set_cookie">Set Tidal cookie</string>
@@ -1828,4 +1826,6 @@
     <string name="apple_music_experience_desc">Replaces the artwork header on playlist, album and library pages with Apple Music\u2019s: a large title over the page, pink accent pills, no backdrop. Turning it on also switches the player to the Apple Music style.</string>
     <string name="spotify_home_style">Spotify home style</string>
     <string name="spotify_home_style_desc">Layout of the Spotify home page</string>
+    <string name="auto_export_downloads_title">Export downloads to Music folder</string>
+    <string name="auto_export_downloads_description">Copy each finished download into Music/KongaMusic with ID3 tags and a .lrc lyrics file, so other music apps can see it. Off by default; downloads also stay in the app.</string>
 </resources>

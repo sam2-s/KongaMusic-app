@@ -785,7 +785,7 @@ fun ScreenHeaderHaze(
 ) {
     if (!enabled) return
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
-    val liquidGlassEnabled by rememberPreference(LiquidGlassEnabledKey, defaultValue = true)
+    val liquidGlassEnabled by rememberPreference(LiquidGlassEnabledKey, defaultValue = false)
     if (!liquidGlassEnabled) return
     HomeTopFadeBlur(
         hazeState = hazeState,

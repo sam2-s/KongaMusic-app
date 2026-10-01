@@ -15,6 +15,8 @@
 
 package moe.kongamusic.ui.component.bitchord
 
+import moe.kongamusic.models.MediaMetadata
+
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
@@ -66,18 +68,14 @@ internal fun ExplicitSongTitle(
 }
 
 /** Maps the current player metadata onto [BitChordBarSong], or null if idle. */
-fun toBitChordBarSong(
-    id: String?,
-    title: String?,
-    artist: String?,
-    thumbnailUrl: String?,
-): BitChordBarSong? {
-    val trackId = id?.takeIf { it.isNotBlank() } ?: return null
+fun MediaMetadata?.toBitChordBarSong(): BitChordBarSong? {
+    val meta = this ?: return null
+    val trackId = meta.id.takeIf { it.isNotBlank() } ?: return null
     return BitChordBarSong(
         id = trackId,
-        title = title.orEmpty(),
-        artist = artist.orEmpty(),
-        thumbnailUrl = thumbnailUrl,
+        title = meta.title,
+        artist = meta.artists.joinToString(", ") { it.name },
+        thumbnailUrl = meta.thumbnailUrl,
     )
 }
 

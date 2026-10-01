@@ -222,7 +222,7 @@ fun GlassNavBar(
                     key = index,
                     icon = {
                         Icon(
-                            imageVector = tab.icon,
+                            painter = tab.icon,
                             contentDescription = tab.label,
                             tint = tint,
                             modifier = Modifier.size(25.dp),
@@ -235,7 +235,7 @@ fun GlassNavBar(
                     key = index,
                     icon = {
                         Icon(
-                            imageVector = tab.icon,
+                            painter = tab.icon,
                             contentDescription = tab.label,
                             tint = tint,
                             modifier = Modifier.size(25.dp),

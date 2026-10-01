@@ -51,7 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -69,7 +69,7 @@ import kotlin.math.roundToInt
 
 data class BottomTab(
     val label: String,
-    val icon: ImageVector,
+    val icon: Painter,
 )
 
 /**
@@ -359,7 +359,7 @@ private fun BottomBarItem(
             .padding(vertical = TAB_VERTICAL_PADDING),
     ) {
         Icon(
-            imageVector = tab.icon,
+            painter = tab.icon,
             contentDescription = tab.label,
             tint = tint,
             modifier = Modifier
